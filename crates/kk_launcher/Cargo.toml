@@ -1,0 +1,12 @@
+[package]
+name = "kk-launcher"
+version = "0.1.0"
+edition = "2021"
+description = "KingKongRecompiled launcher: finds the user's King Kong (2005) install, builds assets locally, starts the game"
+
+[[bin]]
+name = "KingKongRecompiled"
+path = "src/main.rs"
+
+[dependencies]
+kk-extract = { path = "../kk_extract" }

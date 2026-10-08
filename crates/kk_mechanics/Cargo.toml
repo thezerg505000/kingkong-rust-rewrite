@@ -1,0 +1,11 @@
+[package]
+name = "kk-mechanics"
+version = "0.1.0"
+edition = "2021"
+description = "King Kong (2005) gameplay logic ported from the game's own code (no engine deps)"
+
+[lib]
+name = "kk_mechanics"
+path = "src/lib.rs"
+
+[dependencies]

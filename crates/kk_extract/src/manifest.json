@@ -1,0 +1,673 @@
+{
+ "version": 1,
+ "_comment": "Recipes for the assets the game loads. Offsets are positions of records inside the decoded Bin streams of the retail PC Gamer's Edition (KKMaps.bf); texture `idx` values are ordinals of type-11 chunks in the decoded KKTextures.bf banks (texture_binding.md). No game data is stored here.",
+ "assets": {
+  "jack_fps_arms.glb": {
+   "kind": "character",
+   "stream": "ff0003eb",
+   "geo_off": "0x2073a6",
+   "bank": "ff8003eb",
+   "rig": {
+    "prefix": "B_Jaf_",
+    "skip": []
+   },
+   "clips": "arms",
+   "mesh_node": "arms_mesh",
+   "skin_name": "jack_fps_arms_anim_skin",
+   "weapon_socket": {
+    "parent": "B_Jaf_Anex01",
+    "hand": "B_Jaf_MainD"
+   },
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "830067ca",
+      "idx": 63
+     },
+     "normal": {
+      "key": "830067cb",
+      "idx": 64
+     }
+    }
+   }
+  },
+  "trex_inplace.glb": {
+   "kind": "character",
+   "stream": "ff00018c",
+   "geo_off": "0xcb7d61",
+   "bank": "ff80018c",
+   "rig": {
+    "prefix": "B_Rex_",
+    "skip": [
+     "Snap",
+     "Base",
+     "Sang"
+    ]
+   },
+   "clips": "rex",
+   "mesh_node": "rex_mesh",
+   "skin_name": "trex_anim_skin",
+   "inplace": {
+    "pelvis_gizmo": 0,
+    "rootmotion": "trex_rootmotion.json"
+   },
+   "textures": {
+    "0": {
+     "world": "ff00018c",
+     "diffuse": {
+      "key": "56003af2",
+      "idx": 188
+     },
+     "normal": {
+      "key": "56003af4",
+      "idx": 189
+     }
+    },
+    "1": {
+     "world": "ff00018c",
+     "diffuse": {
+      "key": "56003d8f",
+      "idx": 191
+     },
+     "normal": {
+      "key": "56003d91",
+      "idx": 192
+     }
+    },
+    "2": {
+     "world": "ff00018c",
+     "diffuse": {
+      "key": "56003af2",
+      "idx": 188
+     },
+     "normal": {
+      "key": "56003af4",
+      "idx": 189
+     }
+    }
+   }
+  },
+  "jack_fps_luger.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x2c4b60",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_luger_mesh",
+   "note": "OBJ_LugerDef pistol",
+   "binding_note": "FPS GEO has no adjacent material; DUP weapon material re-used (identical UV layout)",
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "830029df",
+      "idx": 36
+     },
+     "normal": {
+      "key": "830029e1",
+      "idx": 37
+     }
+    }
+   }
+  },
+  "jack_fps_tommygun.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x292620",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_tommygun_mesh",
+   "note": "OBJ_tommygun group (follows FPS arms); Thompson SMG",
+   "binding_note": "FPS GEO has no adjacent material; DUP weapon material re-used (identical UV layout)",
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "83001407",
+      "idx": 17
+     },
+     "normal": {
+      "key": "83001409",
+      "idx": 18
+     }
+    }
+   }
+  },
+  "jack_fps_shotgun.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x352490",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_shotgun_mesh",
+   "note": "OBJ_shotgun (double barrel)",
+   "binding_note": "FPS GEO has no adjacent material; DUP weapon material re-used (identical UV layout)",
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "83002db3",
+      "idx": 19
+     },
+     "normal": {
+      "key": "83002db5",
+      "idx": 20
+     }
+    }
+   }
+  },
+  "jack_fps_sniperrifle.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x2de408",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_sniperrifle_mesh",
+   "note": "OBJ_sniperrifle",
+   "binding_note": "FPS GEO has no adjacent material; DUP weapon material re-used (identical UV layout)",
+   "textures": {
+    "0": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "83006f1f",
+      "idx": 45
+     },
+     "normal": {
+      "key": "83006f21",
+      "idx": 46
+     }
+    },
+    "1": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "83006f25",
+      "idx": 47
+     },
+     "normal": {
+      "key": "83006f27",
+      "idx": 48
+     }
+    }
+   }
+  },
+  "kong/kong.glb": {
+   "kind": "kong",
+   "model": "kong",
+   "stream": "ff00018c",
+   "bank": "ff80018c",
+   "rig": {
+    "prefix": "B_Kong_",
+    "err_skip": []
+   },
+   "parts": [
+    {
+     "geo_off": "0xa72c05",
+     "name": "kong_body",
+     "diffuse": 171,
+     "normal": 172
+    },
+    {
+     "geo_off": "0xacb6af",
+     "name": "kong_arm_r",
+     "diffuse": 171,
+     "normal": 172
+    },
+    {
+     "geo_off": "0xae2741",
+     "name": "kong_arm_l",
+     "diffuse": 171,
+     "normal": 172
+    },
+    {
+     "geo_off": "0xafdab7",
+     "name": "kong_head",
+     "diffuse": 175,
+     "normal": 176
+    }
+   ],
+   "kit": {
+    "kit_off": "0x8d706a",
+    "kit_n": 371,
+    "rec_off": "0x8d78fb",
+    "trl_start": "0x8dcafb",
+    "trl_end": "0xa44737"
+   },
+   "labels": "kong",
+   "outputs": {
+    "rootmotion": "kong/kong_rootmotion.json",
+    "actions": "kong/kong_actions.json"
+   },
+   "asset_extras": {
+    "source": "King Kong 2005 PC (Jade), rebuilt from the user's own copy by kk-extract (level 10B stream ff00018c)",
+    "units": "metres",
+    "fps": 60,
+    "rig": "B_Kong_",
+    "clips_in_place": true,
+    "textures": "body/arms idx171+172, head idx175+176 (uv v not flipped)"
+   }
+  },
+  "kong/ann.glb": {
+   "kind": "kong",
+   "model": "ann",
+   "stream": "ff00018c",
+   "rig": {
+    "prefix": "B_Ann_",
+    "helpers": [
+     "Snap",
+     "Deltoide",
+     "Oeil",
+     "Base",
+     "Sang",
+     "Zobil"
+    ],
+    "skinseq_note": "skin ids exclude Anex/Meche/Cheveux/Oeil/Snap",
+    "skinskip": [
+     "Snap",
+     "Base",
+     "Sang",
+     "Zobil",
+     "Anex",
+     "Meche",
+     "Cheveux",
+     "Oeil"
+    ],
+    "allow": [
+     "Zobilamouche"
+    ],
+    "reparent": [
+     [
+      "Meche02G",
+      "Meche01G"
+     ],
+     [
+      "Meche02D",
+      "Meche01D"
+     ],
+     [
+      "Cheveux02G",
+      "Cheveux01G"
+     ],
+     [
+      "Cheveux02D",
+      "Cheveux01D"
+     ],
+     [
+      "Cheveux03G",
+      "Cheveux02G"
+     ],
+     [
+      "Cheveux03D",
+      "Cheveux02D"
+     ]
+    ],
+    "torsion_fix": true,
+    "err_skip": [
+     "Mech",
+     "Chev"
+    ]
+   },
+   "parts": [
+    {
+     "geo_off": "0xbdc67e",
+     "name": "ann_body"
+    }
+   ],
+   "chain": {
+    "start": "0x618035",
+    "end": "0x6616e1"
+   },
+   "outputs": {
+    "rootmotion": "kong/ann_rootmotion.json"
+   },
+   "asset_extras": {
+    "source": "King Kong 2005 PC level 10B (rebuilt by kk-extract)",
+    "units": "metres",
+    "fps": 60,
+    "rig": "B_Ann_",
+    "clips_in_place": true,
+    "note": "untextured (grey); hair GEO not exported; skin ids exclude Anex/Meche/Cheveux/Oeil helpers"
+   }
+  },
+  "creatures/raptor.glb": {
+   "kind": "creature",
+   "model": "raptor",
+   "stream": "ff001793",
+   "prefix": "B_Rap_",
+   "geo": "0x1f923c5",
+   "bank": "ff801793",
+   "mats": {
+    "*": {
+     "diffuse": 263,
+     "normal": 264
+    }
+   },
+   "clips": "0x1f12b77",
+   "pelvis": 0,
+   "rootmotion": "creatures/raptor_rootmotion.json",
+   "labels": "rap"
+  },
+  "creatures/compy.glb": {
+   "kind": "creature",
+   "model": "compy",
+   "stream": "ff001793",
+   "prefix": "B_Gal_",
+   "geo": "0x21f7202",
+   "bank": "ff801793",
+   "mats": {
+    "*": {
+     "diffuse": 271,
+     "normal": 272
+    }
+   },
+   "clips": "0x1f12b77",
+   "pelvis": 0,
+   "rootmotion": "creatures/compy_rootmotion.json",
+   "labels": "rap",
+   "runtime_scale": [
+    0.2,
+    0.35
+   ]
+  },
+  "creatures/brontosaurus.glb": {
+   "kind": "creature",
+   "model": "brontosaurus",
+   "stream": "ff001793",
+   "prefix": "B_Bro_",
+   "geo": "0x232d74a",
+   "bank": "ff801793",
+   "mats": {
+    "0": {
+     "diffuse": 273,
+     "normal": 274
+    },
+    "1": {
+     "diffuse": 275,
+     "normal": 276
+    }
+   },
+   "clips": [
+    "0x1f87a69",
+    "0x1f897c2",
+    "0x23d23c7"
+   ],
+   "pelvis": 0,
+   "rootmotion": "creatures/brontosaurus_rootmotion.json",
+   "labels": "bro"
+  },
+  "creatures/raptor_kong.glb": {
+   "kind": "creature",
+   "model": "raptor_kong",
+   "stream": "ff00018c",
+   "prefix": "B_Rap_",
+   "geo": "0x242fb7e",
+   "bank": "ff80018c",
+   "mats": {
+    "*": {
+     "diffuse": 226,
+     "normal": 227
+    }
+   },
+   "clips": "0x231ebff",
+   "pelvis": 0,
+   "rootmotion": "creatures/raptor_kong_rootmotion.json"
+  },
+  "creatures/crab.glb": {
+   "kind": "creature",
+   "model": "crab",
+   "stream": "ff002001",
+   "prefix": "B_Csc_",
+   "geo": "0x1eaaec8",
+   "bank": null,
+   "mats": {
+    "*": {}
+   },
+   "clips": "0x1dd65db",
+   "pelvis": 0,
+   "rootmotion": "creatures/crab_rootmotion.json"
+  },
+  "creatures/manifest.json": {
+   "kind": "creature_meta"
+  },
+  "sound_defs.json": {
+   "kind": "sounds",
+   "source": "Sound_Common.bf: *.smd definitions (wave keys, volume, fades, inserts) + MS-ADPCM *.wav / *.waa / *.wac decoded to PCM wav",
+   "extra_waves": [
+    {
+     "bf_name": "Amb_03E_area_a_forest.waa",
+     "out": "amb_03e_area_a_rain_forest"
+    },
+    {
+     "bf_name": "Amb_03E_area_b_arena.waa",
+     "out": "amb_03e_area_b_arena"
+    },
+    {
+     "bf_name": "Rain.wac",
+     "out": "wac_rain"
+    },
+    {
+     "bf_name": "Thunder.wac",
+     "out": "wac_thunder"
+    }
+   ],
+   "extra_defs": [
+    {
+     "name": "Amb_03E_area_a_rain",
+     "files": [
+      "sounds/amb_03e_area_a_rain_forest.wav"
+     ],
+     "volume": 0.8,
+     "f1": 1,
+     "fades": [
+      "_Fade/in_1s_lin.fad"
+     ],
+     "inserts": []
+    },
+    {
+     "name": "Amb_03E_area_b_after_rain",
+     "files": [
+      "sounds/amb_03e_area_b_arena.wav"
+     ],
+     "volume": 0.8,
+     "f1": 1,
+     "fades": [],
+     "inserts": []
+    },
+    {
+     "name": "Thunder",
+     "files": [
+      "sounds/wac_thunder.wav"
+     ],
+     "volume": 1.0,
+     "f1": 1,
+     "fades": [],
+     "inserts": []
+    }
+   ]
+  },
+  "fx_sprites": {
+   "kind": "images",
+   "source": "KKTextures.bf bank ff8003eb (level 03E): DXT5/L8 sprites, unmodified decode",
+   "outputs": [
+    {
+     "out": "fx/dust_splatter_512.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "ordinal": 12
+    },
+    {
+     "out": "fx/mist_streak_128x256.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "ordinal": 13
+    },
+    {
+     "out": "fx/rock_chips.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "ordinal": 14
+    },
+    {
+     "out": "fx/rock_debris_256.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "ordinal": 14
+    },
+    {
+     "out": "fx/smoke_cloud_256.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "ordinal": 91
+    },
+    {
+     "out": "fx/smoke_puff_512.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "ordinal": 142
+    },
+    {
+     "out": "fx/smoke_plume_512.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "ordinal": 144
+    },
+    {
+     "out": "fx/fog_noise_512.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "ordinal": 244
+    },
+    {
+     "out": "fx/smoke_plume_alpha_L8_512.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "ordinal": 254
+    },
+    {
+     "out": "fx/soft_blob_64x32.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "key": "a701e2ad"
+    }
+   ]
+  },
+  "fx_palette_sprites": {
+   "kind": "images",
+   "source": "KKTextures.bf bank ff801b17: paletted FX materials (62000f8c sub-materials) - chunk numbers from the world-load key order",
+   "outputs": [
+    {
+     "out": "fx/flare.png",
+     "bank": "ff801b17",
+     "op": "pal",
+     "data": 507,
+     "pal": 405
+    },
+    {
+     "out": "fx/glow_small.png",
+     "bank": "ff801b17",
+     "op": "pal",
+     "data": 508,
+     "pal": 406
+    },
+    {
+     "out": "fx/smoke_fx.png",
+     "bank": "ff801b17",
+     "op": "pal",
+     "data": 513,
+     "pal": 410
+    },
+    {
+     "out": "fx/flash_f11.png",
+     "bank": "ff801b17",
+     "op": "pal",
+     "data": 517,
+     "pal": 413
+    },
+    {
+     "out": "fx/flash_f12.png",
+     "bank": "ff801b17",
+     "op": "pal",
+     "data": 519,
+     "pal": 415
+    },
+    {
+     "out": "fx/flash_f13.png",
+     "bank": "ff801b17",
+     "op": "pal",
+     "data": 520,
+     "pal": 416
+    },
+    {
+     "out": "fx/spark_streak.png",
+     "bank": "ff801b17",
+     "op": "pal",
+     "data": 524,
+     "pal": 420
+    },
+    {
+     "out": "fx/splat_dots.png",
+     "bank": "ff801b17",
+     "op": "pal",
+     "data": 525,
+     "pal": 421
+    }
+   ]
+  },
+  "sky": {
+   "kind": "images",
+   "source": "KKTextures.bf bank ff8003eb ordinal 75 (ENV_Ciel texture 1f007698)",
+   "outputs": [
+    {
+     "out": "sky/ciel_1f007698.png",
+     "bank": "ff8003eb",
+     "op": "rgba",
+     "ordinal": 75
+    }
+   ]
+  },
+  "rex_maps": {
+   "kind": "images",
+   "source": "KKTextures.bf bank ff80018c: V-Rex normal (DXN 189, 192) and roughness (L8 spec 190, head diffuse 191)",
+   "outputs": [
+    {
+     "out": "rex_nrm_body.png",
+     "bank": "ff80018c",
+     "op": "rex_normal",
+     "ordinal": 189
+    },
+    {
+     "out": "rex_nrm_head.png",
+     "bank": "ff80018c",
+     "op": "rex_normal",
+     "ordinal": 192
+    },
+    {
+     "out": "rex_mr_body.png",
+     "bank": "ff80018c",
+     "op": "rex_rough_body",
+     "ordinal": 190
+    },
+    {
+     "out": "rex_mr_head.png",
+     "bank": "ff80018c",
+     "op": "rex_rough_head",
+     "ordinal": 191
+    }
+   ]
+  },
+  "kong_fur": {
+   "kind": "images",
+   "source": "KKTextures.bf bank ff80018c: Kong's fur layers (strand height in alpha) of the body/arm material (idx173 = key 0x83009e48) and the face material (idx177 = 0x5600d6bd); used by kong_fur.rs shells",
+   "outputs": [
+    {
+     "out": "kong/fur_detail.png",
+     "bank": "ff80018c",
+     "op": "rgba",
+     "ordinal": 173
+    },
+    {
+     "out": "kong/fur_head.png",
+     "bank": "ff80018c",
+     "op": "rgba",
+     "ordinal": 177
+    }
+   ]
+  }
+ }
+}

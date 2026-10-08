@@ -1,0 +1,3 @@
+[workspace]
+resolver = "2"
+members = ["crates/kk_fps", "crates/kk_mechanics", "crates/kk_extract", "crates/kk_launcher"]

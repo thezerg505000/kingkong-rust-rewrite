@@ -1,0 +1,3427 @@
+version: 1
+statuses:
+- NOT_STARTED
+- RESEARCHED
+- PARTIAL
+- IMPLEMENTED
+- VERIFIED
+evidence_levels:
+- CONFIRMED_FROM_GAMEPLAY
+- CONFIRMED_FROM_MANUAL
+- INFERRED_IMPLEMENTATION
+- REQUIRES_BINARY_VERIFICATION
+- MEASURED_PS2_PARITY
+groups:
+- id: JACK_MOVEMENT
+  title: 'Jack Driscoll: first-person movement'
+  mechanics:
+  - id: J01
+    name: Forward movement
+    behavior: Move Jack forward relative to camera yaw.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_exec_select_action@0x587bd0
+    - GG_Exec_Joy@0x695030
+    - H_exec_read_joy@0x579f30
+    data: []
+    rust:
+    - kk_fps::player
+    - kk_fps::spec
+    - kk_mechanics::jack::MoveState
+    tests:
+    - jack::target_speed_table
+    - jack::step_smooths_with_four_per_second_and_keeps_vz
+    - jack::ready_ramp_runs_4_5_to_2_5_in_a_tenth_of_a_second
+    doc: spec/evidence/J01.md
+    notes: target=L*4.5 run/2.5 ready/1.5 crouch; blend 4*dt; stop instantly when L<0.25; dir=camera-relative stick [C]; engine
+      collision call not found
+  - id: J02
+    name: Backward movement
+    behavior: Walk backward while keeping camera orientation.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_exec_select_action@0x587bd0
+    data: []
+    rust:
+    - kk_fps::player
+    - kk_mechanics::jack::move_direction
+    tests: []
+    doc: spec/evidence/J02.md
+    notes: same mechanism as J01, no back-specific code [C]
+  - id: J03
+    name: Strafing
+    behavior: Move horizontally left or right without rotating.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_exec_select_action@0x587bd0
+    data: []
+    rust:
+    - kk_fps::player
+    - kk_mechanics::jack::move_direction
+    tests: []
+    doc: spec/evidence/J03.md
+    notes: no strafe-specific code; camera-relative vector, diagonal L up to 1.41 [C]
+  - id: J04
+    name: Analog movement
+    behavior: Movement direction and input strength depend on left stick.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - sub_43cb00 (deadzone 0.15)
+    - GG_Exec_Joy@0x695030
+    - fn@0x43cb00@0x43cb00
+    data: []
+    rust:
+    - kk_fps::player
+    - kk_fps::spec
+    - kk_mechanics::jack::stick_magnitude
+    tests:
+    - jack::move_direction_thresholds
+    - jack::deadzone_rescales_to_full_range
+    doc: spec/evidence/J04.md
+    notes: deadzone 0.15/0.85 per axis, move threshold L>=0.25, joy_norm=(L-0.25)/0.675 [C]
+  - id: J05
+    name: Free camera
+    behavior: Look horizontally and vertically using right stick.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - CM_Cam@0x45b1b0
+    - CAM_controle@0x611370
+    - CM_Cam@0x45b1b0
+    data: []
+    rust:
+    - kk_fps::player
+    - kk_mechanics::jack::look_step
+    tests:
+    - jack::look_rate_and_ramp
+    - jack::look_factor_table
+    doc: spec/evidence/J05.md
+    notes: angle=-stick*2*sens*10*dt*factor; factors 2/1.75 run 3/1.75 aim .6/.35 lock 1.5/1.31 special 9/5.25; cubic yaw
+      ramp (cap 1.2s) when |x|>0.95; sens default unknown [C disasm]
+  - id: J06
+    name: Crouching
+    behavior: Lower player viewpoint and collision height using L3.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - CM_Cam@0x45b1b0
+    data: []
+    rust:
+    - kk_fps::player
+    - kk_mechanics::jack::crouch_intent
+    - kk_mechanics::jack::eye_target
+    tests:
+    - jack::crouch_toggle_and_ceiling
+    - jack::pitch_clamp_and_eye_fov
+    doc: spec/evidence/J06.md
+    notes: speed L*1.5; eye 0.8 crouched; eye blend 5*dt; ceiling probe 0.8 m [C]; collision height not found
+  - id: J07
+    name: Weapon-ready movement
+    behavior: Allow movement while holding a weapon in its aimed/ready position.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::player
+    - kk_mechanics::jack::MoveState
+    tests:
+    - jack::ready_ramp_runs_4_5_to_2_5_in_a_tenth_of_a_second
+    - jack::target_speed_table
+    doc: spec/evidence/J07.md
+    notes: 'ready: run flag cleared by held aim buttons; 0.1s ramp 4.5->2.5, then L*2.5; aim flag target 0.5 [C]'
+  - id: J08
+    name: Hip-level movement
+    behavior: Keep the weapon lowered when not actively aiming.
+    status: RESEARCHED
+    evidence: INFERRED_IMPLEMENTATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: spec/evidence/J08.md
+    notes: animation-id driven (0x32..0x37 walk, 0x3a.. aim); no numbers [C ids]
+  - id: J09
+    name: Shallow-water movement
+    behavior: Traverse waterlogged environments with water-specific movement and presentation.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: J10
+    name: Deep-water wading
+    behavior: Raise equipped weapons above the water while crossing deeper areas.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: J11
+    name: Narrow traversal
+    behavior: Move across bridges, wooden planks, rocky pathways, and enclosed passages.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: J12
+    name: Fall death
+    behavior: Kill Jack when falling into designated lethal drops.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/J12.md
+    notes: no fall death/damage in H_ code; only hard-landing anim 0xd when vz<-5 [C]; probably level trigger
+  - id: J13
+    name: Scripted locomotion
+    behavior: Support temporarily constrained movement during narrative sequences.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: J14
+    name: Damage movement feedback
+    behavior: Convey serious injury through altered movement and audiovisual feedback.
+    status: RESEARCHED
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - H_ETAT_IA_paf@0x594400
+    data: []
+    rust:
+    - kk_fps::hud
+    tests: []
+    doc: spec/evidence/J14.md
+    notes: hit state takes over locomotion; msg codes 2/4/5 via fn@0x6e5060; slow flag +0x1a30 target 1.5; no limp penalty
+      [C]
+  - id: J15
+    name: First-person embodiment
+    behavior: Present Jack as an embodied character rather than a permanently visible floating gun.
+    status: IMPLEMENTED
+    evidence: CONFIRMED_FROM_GAMEPLAY
+    binary: []
+    data: []
+    rust:
+    - kk_fps::player
+    tests: []
+    doc: null
+    notes: jack_fps_arms.glb from the game
+- id: JACK_CAMERA
+  title: 'Jack: first-person camera and weapon presentation'
+  mechanics:
+  - id: C01
+    name: First-person viewpoint
+    behavior: Camera follows Jack's head-level perspective.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - CM_Cam@0x45b1b0
+    data: []
+    rust:
+    - kk_fps::player
+    - kk_mechanics::jack::eye_target
+    tests: []
+    doc: spec/evidence/C01.md
+    notes: eye 1.6/1.45/1.4/0.8, offset y -0.02, blend 5*dt [C]; head bob unmapped
+  - id: C02
+    name: Free look
+    behavior: Player controls camera pitch and yaw.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - CM_Cam@0x45b1b0
+    data: []
+    rust:
+    - kk_fps::player
+    - kk_mechanics::jack::clamp_pitch
+    tests:
+    - jack::pitch_clamp_and_eye_fov
+    doc: spec/evidence/C02.md
+    notes: pitch limit fwd.z +-0.95 [C disasm 0x45f287]
+  - id: C03
+    name: Weapon lowered
+    behavior: Firearms do not remain fully raised continuously.
+    status: RESEARCHED
+    evidence: INFERRED_IMPLEMENTATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: spec/evidence/C03.md
+    notes: animation-driven; see J07/J08
+  - id: C04
+    name: Weapon raise
+    behavior: Holding aim transitions the weapon into firing position.
+    status: RESEARCHED
+    evidence: INFERRED_IMPLEMENTATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::weapons
+    - kk_mechanics::jack::MoveState
+    tests: []
+    doc: spec/evidence/C04.md
+    notes: run flag cleared + 0.1s ramp [C]; raise anim length not recovered
+  - id: C05
+    name: Aim alignment
+    behavior: Weapon orientation follows the camera's aiming direction.
+    status: RESEARCHED
+    evidence: INFERRED_IMPLEMENTATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: spec/evidence/C05.md
+    notes: no separate aim-alignment code; lock-on slerp 4*dt at CM_Cam 0x45f57f [C]
+  - id: C06
+    name: Zoom
+    behavior: Zoom provides a closer aiming view.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - CM_Cam@0x45b1b0
+    data: []
+    rust:
+    - kk_fps::player
+    - kk_mechanics::jack::fov_target
+    - kk_mechanics::jack::smooth_fov
+    tests:
+    - jack::pitch_clamp_and_eye_fov
+    doc: spec/evidence/C06.md
+    notes: FOV 1.2 default, aim 0.6, weapon id 4 -> 0.3, no zoom if +0x110c/+0x1118; blend 5*dt both ways [C disasm]
+  - id: C07
+    name: Scope behavior
+    behavior: Scoped weapons provide long-range aiming functionality.
+    status: IMPLEMENTED
+    evidence: INFERRED_IMPLEMENTATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::weapons
+    - kk_fps::hud
+    tests: []
+    doc: null
+    notes: ''
+  - id: C08
+    name: Minimal reticle
+    behavior: Default gameplay does not rely on a permanently displayed crosshair.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::hud
+    tests: []
+    doc: spec/evidence/C08.md
+    notes: ''
+  - id: C09
+    name: Optional crosshair
+    behavior: An aiming visor can be activated in options.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/C09.md
+    notes: ''
+  - id: C10
+    name: Camera injury effect
+    behavior: Damage reduces visual clarity and applies noticeable screen effects.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Msg_SendJackScreenFx@0x6e5060
+    data: []
+    rust:
+    - kk_fps::hud
+    tests: []
+    doc: spec/evidence/C10.md
+    notes: 0x38d1b717 is float 1e-4 delay; queue 0x16 consumer not found
+  - id: C11
+    name: Recovery effect
+    behavior: Injury visuals subside during regeneration.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::hud
+    tests: []
+    doc: spec/evidence/C11.md
+    notes: recovery = wound state 2->0 in H_ETAT_IA_stunned/H_TRACK_Reflex; no visual numbers
+  - id: C12
+    name: Contextual framing
+    behavior: Camera presentation responds to scripted events and character interactions.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+- id: JACK_INVENTORY
+  title: 'Jack: weapon inventory and equipment'
+  mechanics:
+  - id: I01
+    name: One firearm
+    behavior: Jack may carry only one firearm type at a time.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_exec_read_joy@0x579f30 (slots G+0x3344/0x3390/0x33dc)
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: null
+    notes: ''
+  - id: I02
+    name: One spear
+    behavior: Jack can additionally carry one spear or bone weapon.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_TRACK_Reflex@0x58de70
+    data: []
+    rust:
+    - kk_mechanics::spears::Slots
+    tests: []
+    doc: spec/evidence/I02.md
+    notes: slots A/B/C
+  - id: I03
+    name: Active weapon restriction
+    behavior: Holding a spear prevents immediate firearm use until the spear is dropped.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Jack_IsNonFirearmHeld@0x68b930
+    - TrigTest_Arme@0x469980
+    data: []
+    rust:
+    - kk_mechanics::spears::Slots::can_fire_gun
+    tests: []
+    doc: spec/evidence/I03.md
+    notes: guns off while ids 5..10 held
+  - id: I04
+    name: Firearm pickup
+    behavior: Picking up another firearm replaces the currently carried gun.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: I05
+    name: Spear pickup
+    behavior: Spears may be collected from the environment.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_TRACK_Reflex@0x58de70
+    data: []
+    rust:
+    - kk_mechanics::spears::Slots::pickup
+    tests: []
+    doc: spec/evidence/I05.md
+    notes: mailbox G+0x456c..
+  - id: I06
+    name: Recover thrown spear
+    behavior: A reusable spear embedded in terrain or an enemy can be retrieved.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Javelin_waittaken@0x87d160
+    data: []
+    rust:
+    - kk_mechanics::spears::Spear::can_be_picked_up
+    tests: []
+    doc: spec/evidence/I06.md
+    notes: wear and fire travel with the spear
+  - id: I07
+    name: Ammunition pickup
+    behavior: Obtain ammunition through crates or companion interactions.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Munition_init@0x6c45a0
+    - Munition_wait@0x6c4000
+    - H_TRACK_Reflex@0x58de70
+    data: []
+    rust:
+    - kk_mechanics::weapons::AmmoBox
+    tests:
+    - weapons::tests::ammo_box_count_capped_at_ten
+    doc: spec/evidence/I07.md
+    notes: box cap 10 pickups [C]; one pickup = reserve+clip, literal 2r+c [C]
+  - id: I08
+    name: Weapon supply
+    behavior: Captain Englehorn periodically drops firearm supply crates from his plane.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - SA_init@0x56c5b0
+    - SA_ETAT_Fall@0x56f530
+    - SA_ETAT_WaitAccroche@0x56dab0
+    data: []
+    rust:
+    - kk_mechanics::companions::crate_remaining_ammo
+    tests: []
+    doc: spec/evidence/I08.md
+    notes: plane/flare are binding-only; falling crate implemented; periodic timing is script data
+  - id: I09
+    name: Companion supply
+    behavior: Hayes can provide firearms or ammunition at certain points.
+    status: IMPLEMENTED
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - H_ETAT_IA_psss@0x5d88a0
+    - Jack_ExchangeWeaponSlots@0x53a8e0
+    - H_ETAT_jimmy_munitions@0x5dffb0
+    - TrigCINE_ResetMunitionHayes@0x7665d0
+    data: []
+    rust:
+    - kk_mechanics::companions::swap_firearms
+    - kk_mechanics::companions::reset_munition_hayes
+    tests: []
+    doc: spec/evidence/I09.md
+    notes: weapon+ammo exchange with companion; Hayes = slot 3; reset zeroes slot-3 clip/reserve 1..4 [C]
+  - id: I10
+    name: Lever carrying
+    behavior: Jack can carry a puzzle lever in addition to regular equipment.
+    status: VERIFIED
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - fn@0x68c870@0x68c870
+    - H_TRACK_Reflex@0x58de70
+    - H_exec_ch_msg@0x5b3d70
+    - TrigTest_Levier@0x469940
+    data: []
+    rust:
+    - kk_mechanics::companions::HeldItems
+    tests: []
+    doc: spec/evidence/I10.md
+    notes: lever = weapon-slot item 10, flag G+0x4588; stash/holster rules [C]
+  - id: I11
+    name: Ammunition persistence
+    behavior: Equipped weapons and ammunition generally carry between consecutive story chapters, subject to scripted exceptions.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_mechanics::progression::chapter_loadout
+    tests: []
+    doc: spec/evidence/I11.md
+    notes: ''
+  - id: I12
+    name: Empty ammunition
+    behavior: Guns cannot fire when no usable ammunition remains.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_callback_tir@0x5bbd10
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: null
+    notes: ''
+- id: JACK_GUNPLAY
+  title: 'Jack: firearms and gunplay'
+  mechanics:
+  - id: G01
+    name: Weapon ready
+    behavior: Hold aim to raise the equipped gun.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: null
+    notes: ''
+  - id: G02
+    name: Fire
+    behavior: Fire with R2 while aiming.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_callback_tir@0x5bbd10
+    - sub_540fd0
+    data: []
+    rust:
+    - kk_fps::weapons
+    - kk_mechanics::weapons::WeaponDef
+    tests:
+    - weapons::tests::shot_timers_and_auto_interval
+    doc: spec/evidence/G02.md
+    notes: stored timers Colt 0.4/Tommy 0.2/Shotgun 0.5/Sniper 0.4 [C value, L meaning]; Tommy interval 0.1 [C]; kk_fps now
+      uses these (batch b1 3 shots from 10 clicks @0.1)
+  - id: G03
+    name: Manual reloading
+    behavior: Press R1 to perform a reload.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_exec_loading_weapon@0x5ccc70
+    data: []
+    rust:
+    - kk_fps::weapons
+    - kk_mechanics::weapons::Ammo::reload
+    tests:
+    - weapons::tests::reload_moves_min_of_missing_and_reserve
+    doc: spec/evidence/G03.md
+    notes: n=min(clip-mag,min(reserve,clip)); shotgun avail=1 [C]
+  - id: G04
+    name: Ammunition accounting
+    behavior: Consume ammunition as shots are fired.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_callback_tir@0x5bbd10
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: null
+    notes: ''
+  - id: G05
+    name: Empty magazine
+    behavior: Prevent firing after the magazine is exhausted.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: null
+    notes: ''
+  - id: G06
+    name: Reserve ammunition
+    behavior: Maintain ammunition not currently loaded in the gun.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - G+0x39d4 reserve, G+0x3f80 reserve max
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: null
+    notes: reserve max values not recovered [G]
+  - id: G07
+    name: Ammunition reporting
+    behavior: Jack verbally announces remaining ammunition or low-ammo status.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_exec_text@0x58c3f0
+    data: []
+    rust:
+    - kk_fps::sfx
+    - kk_mechanics::progression::low_ammo_line
+    tests: []
+    doc: spec/evidence/G07.md
+    notes: ''
+  - id: G08
+    name: Zoom aiming
+    behavior: Provide a zoomed view for long-range engagements.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::player
+    tests: []
+    doc: null
+    notes: ''
+  - id: G09
+    name: Projectile hit detection
+    behavior: Determine whether a fired shot strikes an enemy or environment.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - sub_540fd0 ray length = weapon range
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: null
+    notes: ''
+  - id: G10
+    name: Damage by weapon
+    behavior: Different firearm types inflict different amounts of damage.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - sub_53a370 (distance bands)
+    - uni_init.ofc stmts 769-832
+    - fn@0x53a370@0x53a370
+    data: []
+    rust:
+    - kk_fps::spec
+    - kk_mechanics::weapons::damage_at_distance_sq
+    - kk_fps::weapons
+    tests:
+    - weapons::tests::bands_are_compared_on_squared_distance
+    doc: spec/evidence/G10.md
+    notes: bands on squared distance, cheat 1000, int truncation [C]; table uni_init 769-832 [C]
+  - id: G11
+    name: Shotgun spread
+    behavior: Several projectiles can hit one or multiple creatures.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_callback_tir@0x5bbd10
+    data: []
+    rust:
+    - kk_fps::weapons
+    - kk_mechanics::weapons::shotgun_pattern
+    tests:
+    - weapons::tests::shotgun_grid_is_25_pellets_in_radians
+    doc: spec/evidence/G11.md
+    notes: 25 pellets, grid +-10deg step 5deg, jitter +-0.05 RADIANS on angle, centre pellet unjittered [C]
+  - id: G12
+    name: Distance effectiveness
+    behavior: Shotgun effectiveness decreases over distance.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - sub_53a370
+    data: []
+    rust:
+    - kk_fps::spec
+    - kk_fps::weapons
+    tests: []
+    doc: null
+    notes: ''
+  - id: G13
+    name: Automatic fire
+    behavior: Machine gun continues firing while the firing input is held, subject to ammunition.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::weapons
+    tests: []
+    doc: null
+    notes: ''
+  - id: G14
+    name: Weapon recoil
+    behavior: Weapon firing produces visual and animation feedback.
+    status: IMPLEMENTED
+    evidence: INFERRED_IMPLEMENTATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::weapons
+    - kk_fps::fx
+    tests: []
+    doc: null
+    notes: ''
+  - id: G15
+    name: Shot reactions
+    behavior: Damaged creatures may flinch, stagger, or redirect their attention.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_exec_ch_Stimulus_Paf@0x5a3060
+    data: []
+    rust:
+    - kk_fps::rex
+    tests: []
+    doc: null
+    notes: ''
+  - id: G16
+    name: Fatal impact
+    behavior: Lethal shots trigger the appropriate enemy death sequence.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: G17
+    name: Nonlethal distraction
+    behavior: Firing at certain huge predators attracts or interrupts them without killing them.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_exec_check_paf@0x849910
+    - PNJ_Raptor_exec_check_sound@0x8478d0
+    - PNJ_Raptor_exec_check_shoot@0x85b0a0
+    data: []
+    rust:
+    - kk_fps::rex
+    - kk_mechanics::creatures::vrex_jack
+    tests:
+    - kk_mechanics::creatures::vrex_jack::tests::jack_is_flagged_after_more_than_10_damage
+    - kk_mechanics::creatures::vrex_jack::tests::bullets_never_hurt_the_rex_but_scripts_can
+    - kk_mechanics::creatures::vrex_jack::tests::gunshot_is_heard_within_150_m
+    doc: spec/evidence/G17.md
+    notes: no hp loss; noise 150 m, shot-near 8 m, >10 dmg ledger makes Jack the target, hit>=20 re-think (HESITE+roar); kk_fps
+      flinch is invented
+  - id: G18
+    name: Supply replacement
+    behavior: Picking up weapons or supplies changes the available ammunition resources.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+- id: JACK_SPEARS
+  title: 'Jack: spear and bone combat'
+  mechanics:
+  - id: S01
+    name: Developed spear
+    behavior: A crafted spear with relatively high damage.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Javelin_init@0x8783a0
+    data:
+    - uni_init stmts 809-816
+    rust:
+    - kk_mechanics::weapons::WEAPONS
+    tests: []
+    doc: spec/evidence/S01.md
+    notes: 'weapon 6: 11/11/5, 3 embeds; naming [L]'
+  - id: S02
+    name: Bone spear
+    behavior: A smaller, weaker improvised weapon obtained from bone sources.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Javelin_init@0x8783a0
+    data:
+    - uni_init stmts 817-824
+    rust:
+    - kk_mechanics::weapons::WEAPONS
+    tests: []
+    doc: spec/evidence/S02.md
+    notes: 'weapon 7: 7/7/3, 2 embeds; naming [L]'
+  - id: S03
+    name: Spear melee
+    behavior: Stab or repel nearby creatures.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_ETAT_IA_frappe@0x5a1020
+    - H_exec_test_ZDE_FIGHT@0x5915b0
+    data: []
+    rust:
+    - kk_mechanics::spears::melee_flag
+    tests: []
+    doc: spec/evidence/S03.md
+    notes: damage 1, cooldown 0.4 s, reach 5.0
+  - id: S04
+    name: Spear aiming
+    behavior: Raise and orient the spear toward the targeted position.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_ETAT_IA_lance@0x5ca1e0
+    data: []
+    rust:
+    - kk_mechanics::spears::aim_point
+    tests: []
+    doc: spec/evidence/S04.md
+    notes: aim point = camera + fwd x 20
+  - id: S05
+    name: Spear throwing
+    behavior: Release the spear as a traveling projectile.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_ETAT_IA_lance@0x5ca1e0
+    - Javelin_wait@0x878760
+    - javelin_initlaunch@0x878eb0
+    - Javelin_launch@0x879190
+    - Javelin_endofmove@0x87c390
+    - Ballistic_SolveLaunchVelocity@0x56a7c0
+    data: []
+    rust:
+    - kk_mechanics::spears::launch_velocity
+    - kk_mechanics::spears::Spear::launch
+    tests: []
+    doc: spec/evidence/S05.md
+    notes: 50 m/s = 2.5 x 20 [C]; gravity -10 [C]; Euler integrator [L]
+  - id: S06
+    name: Spear impact
+    behavior: Spear collides with creatures or world geometry.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Javelin_launch@0x879190
+    - Col_LastHitMaterial@0x42dfd0
+    data: []
+    rust:
+    - kk_mechanics::spears::classify_hit
+    tests: []
+    doc: spec/evidence/S06.md
+    notes: damage by squared distance from launch point, rows 6-8; +10 burning; glance = half
+  - id: S07
+    name: Spear embedding
+    behavior: A spear can lodge in its target.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Javelin_launch@0x879190
+    - Javelin_Plug@0x87e7f0
+    data: []
+    rust:
+    - kk_mechanics::spears::Spear::impact
+    tests: []
+    doc: spec/evidence/S07.md
+    notes: embed 0.6 m, wear +2, follows host via local offset
+  - id: S08
+    name: Spear recovery
+    behavior: Retrieve a usable thrown spear.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Javelin_waittaken@0x87d160
+    - H_TRACK_Reflex@0x58de70
+    data: []
+    rust:
+    - kk_mechanics::spears::Spear::can_be_picked_up
+    tests: []
+    doc: spec/evidence/S08.md
+    notes: reach 3 m (+1), despawn 15 m / 3 s, cap 32
+  - id: S09
+    name: Spear degradation
+    behavior: Repeated use may eventually break a spear.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Javelin_init@0x8783a0
+    - Javelin_waitdestroy@0x87f600
+    - Jack_SpearWearStage@0x68a3c0
+    data: []
+    rust:
+    - kk_mechanics::spears::SpearKind::max_wear
+    tests: []
+    doc: spec/evidence/S09.md
+    notes: 'budget 6/4, +2 per embed: 3 and 2 embeds'
+  - id: S10
+    name: Limited spear supplies
+    behavior: Individual environmental spear pickups can be finite.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - ib_wait@0x6ef900
+    - ib_waitdestroy@0x6f0590
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/S10.md
+    notes: ib boxes single use; no finite counts found
+  - id: S11
+    name: Renewable bone supplies
+    behavior: Certain bone piles or carcasses provide repeated improvised weapon pickups.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/S11.md
+    notes: no renewing logic found
+  - id: S12
+    name: Flaming spear
+    behavior: Ignite the spear using an existing fire source.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Javelin_GFX_fire1@0x87fa70
+    - Fire_PointInFireZone@0x6e3210
+    data: []
+    rust:
+    - kk_mechanics::spears::Spear::ignite
+    tests: []
+    doc: spec/evidence/S12.md
+    notes: burn 10 s, water extinguishes, fire-zone test 1 s
+  - id: S13
+    name: Fire damage
+    behavior: An ignited spear can burn enemies or flammable objects.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Javelin_launch@0x879190
+    data: []
+    rust:
+    - kk_mechanics::spears::BURN_DAMAGE_BONUS
+    tests: []
+    doc: spec/evidence/S13.md
+    notes: +10 damage while burning; creature burn tick not researched
+  - id: S14
+    name: Bait impalement
+    behavior: Skewer a small creature and carry it on a spear.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/S14.md
+    notes: not found; weapon 9 is a [G] candidate
+  - id: S15
+    name: Bait throwing
+    behavior: Throw a skewered creature to distract nearby predators.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_ETAT_IA_lance@0x5ca1e0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/S15.md
+    notes: throw 18.75 m/s if weapon 9; distraction unknown
+  - id: S16
+    name: Spear dropping
+    behavior: Discard the held spear and return to firearm use when available.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Jack_DropHeldThrowable@0x68c870
+    data: []
+    rust:
+    - kk_mechanics::spears::Slots::drop_held
+    tests: []
+    doc: spec/evidence/S16.md
+    notes: slot0:=slot1, lever to slot1
+- id: SURVIVAL
+  title: 'Jack: health, damage and death'
+  mechanics:
+  - id: H01
+    name: Hidden health
+    behavior: Do not display a standard health bar by default.
+    status: RESEARCHED
+    evidence: INFERRED_IMPLEMENTATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::player::Player::paf
+    tests: []
+    doc: spec/evidence/H01.md
+    notes: no HP bar; 4-value status
+  - id: H02
+    name: Enemy damage
+    behavior: Creature attacks reduce remaining health.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_exec_ch_Stimulus_Paf@0x5a3060
+    - H_TRACK_PublishBeacon@0x53ad10
+    data: []
+    rust:
+    - kk_mechanics::wounds::Wounds::hit
+    - kk_fps::player::Player::paf
+    - kk_fps::rex
+    tests: []
+    doc: spec/evidence/H02.md
+    notes: status 0/1/2/3; wound 15.5/13.5/10.5 etc by deaths G+0x4dc8; cooldown 3-5 s; flag 0x200 kills
+  - id: H03
+    name: Damage recovery
+    behavior: Health regenerates after sufficient time without damage.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_exec_ch_Stimulus_Paf@0x5a3060
+    - H_ETAT_IA_stunned@0x5c6e20
+    - H_TRACK_joueur@0x5816f0
+    - H_ETAT_ann_heal@0x5d0380
+    data: []
+    rust:
+    - kk_fps::spec
+    - kk_mechanics::wounds::Wounds::tick
+    - kk_fps::player
+    - kk_fps::hud
+    tests: []
+    doc: spec/evidence/H03.md
+    notes: 'Jack never self-heals: 1->2 after wound length, only Ann cures (5.0/2.0 s); 8 s regen was companion-only'
+  - id: H04
+    name: Critical damage
+    behavior: Repeated attacks before recovery can kill Jack.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_mechanics::wounds::Wounds::hit
+    - kk_fps::player::Player::paf
+    tests: []
+    doc: spec/evidence/H04.md
+    notes: hit while wounded after cooldown kills
+  - id: H05
+    name: Damage screen
+    behavior: Redness, blur, and loss of visual clarity indicate injury.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_TRACK_joueur@0x5816f0
+    data: []
+    rust:
+    - kk_fps::hud
+    tests: []
+    doc: spec/evidence/H05.md
+    notes: heartbeat 0.5 s, blend 0.3, rumble; visual meaning [L]
+  - id: H06
+    name: Audio feedback
+    behavior: Sound and music change to communicate danger.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_TRACK_Reflex@0x58de70
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/H06.md
+    notes: wounded loop sfx id 8/9
+  - id: H07
+    name: Recovery feedback
+    behavior: Screen and audio return toward normal as health recovers.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/H07.md
+    notes: ''
+  - id: H08
+    name: Movement impairment
+    behavior: Serious injury can produce slower or compromised movement.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/H08.md
+    notes: no Jack movement impairment found
+  - id: H09
+    name: Instant-kill hazards
+    behavior: Certain falls and powerful predator attacks cause immediate death.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_TRACK_Reflex@0x58de70
+    data: []
+    rust:
+    - kk_mechanics::wounds::Wounds::hazard_dwell
+    tests: []
+    doc: spec/evidence/H09.md
+    notes: hazard dwell 1.0 s Jack; fall height not found
+  - id: H10
+    name: Checkpoint restart
+    behavior: Death returns the player to a prior checkpoint.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_ETAT_IA_mort@0x5a3e80
+    - Stats_OnPlayerDeath@0x52f240
+    data: []
+    rust:
+    - kk_mechanics::wounds::Wounds::commit_death
+    - kk_fps::hud
+    tests: []
+    doc: spec/evidence/H10.md
+    notes: restart >4.0 s (8 s cap), 30 frame delay, G+0x4dc8 death counter
+  - id: H11
+    name: Environmental damage
+    behavior: Fire and certain hazards can injure Jack.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - Fire_PointInFireZone@0x6e3210
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/H11.md
+    notes: fire zones queue 0x17; damage consumer H_callback_after_blend decompile failed
+  - id: H12
+    name: Companion damage
+    behavior: Allies have their own vulnerability and can be injured.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/H12.md
+    notes: see N10
+- id: ENVIRONMENT_INTERACTION
+  title: Environmental mechanics and puzzles
+  mechanics:
+  - id: E01
+    name: Flammable vegetation
+    behavior: Burn tall grass, thorny bushes, and brushwood.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - SGF_Propage@0x6827c0
+    - SGF_Init@0x6824d0
+    - SGF_CP@0x683070
+    - TrigExec_Burn@0x78af30
+    - Fire_PointInFireZone@0x6e3210
+    data: []
+    rust:
+    - kk_mechanics::environment::GridFire
+    tests:
+    - environment::tests::grid_fire_spreads_one_cell_per_interval_and_burns_out
+    doc: spec/evidence/E01.md
+    notes: 'grid fire: mat 8 flammable, 1 cell/interval, burn-out leaves 0x80, ring 200 [C]; burn time/interval per level
+      [G]'
+  - id: E02
+    name: Fire ignition
+    behavior: Flaming spears ignite compatible materials.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - TrigExec_Burn@0x78af30
+    - ode_check_trigger@0x6a1dd0
+    data: []
+    rust:
+    - kk_mechanics::environment::GridFire::find_start_cell
+    tests:
+    - environment::tests::start_cell_search_prefers_own_cell_then_scan_order
+    doc: spec/evidence/E02.md
+    notes: ignition = TrigExec_Burn start cell / paf bit 0x200000 / fire zone; spear->script link is level data
+  - id: E03
+    name: Fire transfer
+    behavior: Fire can spread between connected flammable objects in designed encounters.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - SGF_Propage@0x6827c0
+    - ode_exec_gestion_feu@0x6a3740
+    - SFX_NET_Fire_ETAT_Burn@0x4d6c90
+    data: []
+    rust:
+    - kk_mechanics::environment::OdeBurn
+    tests:
+    - environment::tests::ode_fire_timeline
+    doc: spec/evidence/E03.md
+    notes: grid 1 cell/interval; ODE props spread at intensity 1.5 (100 frames); fire line 1.4 m spacing [C]
+  - id: E04
+    name: Fire damage
+    behavior: Burning areas threaten enemies and Jack.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_reflex@0x835ea0
+    - PNJ_Scorpion_reflex@0x4f8610
+    - PNJ_Scolo_Reflex@0x81a710
+    - fn@0x68a9b0@0x68a9b0
+    data: []
+    rust:
+    - kk_mechanics::environment::burn_paf_interval
+    tests:
+    - environment::tests::creature_burn_numbers
+    doc: spec/evidence/E04.md
+    notes: 'creatures: paf 1000/0x200200 on burning cell [C]; Jack burn damage not recovered (H_callback_after_blend decompile
+      failed)'
+  - id: E05
+    name: Fire-based barriers
+    behavior: Destroy vegetation blocking progression.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - SGF_CP@0x683070
+    data: []
+    rust:
+    - kk_mechanics::environment::restore_burnt
+    tests:
+    - environment::tests::restore_marks_connected_flammable_cells
+    doc: spec/evidence/E05.md
+    notes: burnt cells (0x80) never re-ignite; persisted by SGF_CP
+  - id: E06
+    name: Fire sources
+    behavior: Use burning urns, torches, braziers, and existing flames.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - it_loop_off@0x4ce740
+    - it_init@0x4cd5c0
+    data: []
+    rust:
+    - kk_mechanics::environment::torch_lights
+    tests:
+    - environment::tests::torch_light_rule
+    doc: spec/evidence/E06.md
+    notes: torch lights from fire zone / burning cell / flag; default radius 0.2 [C]
+  - id: E07
+    name: Light propagation puzzles
+    behavior: Ignite additional fire sources to bring flame into new areas.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - TrigTest_PositionGrilleEnflam@0x46a360
+    - TrigTest_MultiGaoActive@0x4656d0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/E07.md
+    notes: built from E01/E06 pieces + trigger tests; layouts are level data
+  - id: E08
+    name: Wooden barricades
+    behavior: Break certain wooden obstacles with physical attacks.
+    status: VERIFIED
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - IOB_Etat_Init@0x7a3820
+    - IOB_Etat_Go@0x7a3c40
+    - IOB_exec_collect_damage@0x649200
+    data: []
+    rust:
+    - kk_mechanics::companions::Obstacle
+    tests: []
+    doc: spec/evidence/E08.md
+    notes: 10 pieces, thresholds; 6 weak hits = 1 pt, flag0x10 = 1, strong = 100; debris 6.0 s
+  - id: E09
+    name: Door mechanisms
+    behavior: Activate rotating wooden posts or cranks to open gates.
+    status: VERIFIED
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - InteractiveDoor_init@0x874c30
+    - InteractiveDoor_loop@0x876330
+    - InteractiveDoor_update@0x875be0
+    - H_ETAT_Ia_porte@0x5e1b60
+    data: []
+    rust:
+    - kk_mechanics::companions::Door
+    - kk_mechanics::companions::door_timing
+    tests: []
+    doc: spec/evidence/E09.md
+    notes: crank 0.576, default time 0.1, close/3, prompt 2 m [C]
+  - id: E10
+    name: Missing levers
+    behavior: Find and insert a lever to complete a gate mechanism.
+    status: IMPLEMENTED
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - InteractiveDoor_loop@0x876330
+    - TrigTest_Levier@0x469940
+    data: []
+    rust:
+    - kk_mechanics::companions::HeldItems::insert_lever
+    tests: []
+    doc: spec/evidence/E10.md
+    notes: lever socket prompt 0xe within 2 m
+  - id: E11
+    name: Multi-operator doors
+    behavior: Jack and companions cooperate to turn gate mechanisms.
+    status: IMPLEMENTED
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - InteractiveDoor_loop@0x876330
+    - InteractiveDoor_exec_rank_helpers@0x48db90
+    - InteractiveDoor_exec_assign_helpers@0x48df40
+    data: []
+    rust:
+    - kk_mechanics::companions::pillar_gate
+    - kk_mechanics::companions::rank_helpers
+    tests: []
+    doc: spec/evidence/E11.md
+    notes: all pillars operated+ready -> open; partial -> hold; helper rank weights 4/5/2/1
+  - id: E12
+    name: Movable obstacles
+    behavior: Kong can relocate massive objects blocking passages.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KIGO_init@0x671970
+    - KIMO_Init@0x4c7630
+    - KIODE_exec_check_paf@0x6a5520
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/E12.md
+    notes: movable = KIGO/KIMO/KIODE objects; no separate obstacle class; Kong group owns details
+  - id: E13
+    name: Destructible structures
+    behavior: Certain scaffolds, barricades, gates, and supports can be destroyed.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - ode_state_active@0x6a2e70
+    - ode_exec_gestion_paf_externes@0x6a4250
+    - btode_bhv_TreeHitPAGTimer@0x6a9b20
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/E13.md
+    notes: IOB (E08) + ode_* + btode_* destructibles; thresholds are instance data
+  - id: E14
+    name: Breakable supply crates
+    behavior: Open weapon crates to reveal supplies.
+    status: IMPLEMENTED
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - SA_init@0x56c5b0
+    - SA_echange@0x56d630
+    - SA_ETAT_Loop@0x56ccc0
+    - SA_ETAT_Fall@0x56f530
+    data: []
+    rust:
+    - kk_mechanics::companions::crate_exchange
+    - kk_mechanics::companions::crate_remaining_ammo
+    tests: []
+    doc: spec/evidence/E14.md
+    notes: SA_* = airdrop weapon crate, interaction swap; no breaking step found
+  - id: E15
+    name: Dynamic cover
+    behavior: Hide behind suitable stone structures or terrain obstacles.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_ETAT_IA_MultiCover@0x5d5000
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/E15.md
+    notes: no cover-object class; MultiCover AI + LOS; scoring not mapped
+  - id: E16
+    name: Narrow passage safety
+    behavior: Use geometry that large creatures cannot enter or easily navigate.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - IOB_TAG_OFF@0x7a4020
+    - Trap_QS_DETECT_c@0x6ee6a0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/E16.md
+    notes: data-driven (nav network/tags); no code rule
+  - id: E17
+    name: Environmental ambush
+    behavior: Use fire or falling objects to eliminate enemies.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - ode_exec_gestion_paf_externes@0x6a4250
+    - KPluieDeLances_etat_attaque@0x74de20
+    - Trap_QS_DETECT_c@0x6ee6a0
+    data: []
+    rust:
+    - kk_mechanics::environment::QUICKSAND_PULL_RATE
+    tests: []
+    doc: spec/evidence/E17.md
+    notes: fire/ODE pafs + spear rain + quicksand (pull dt*6, 5 clients) [C]
+  - id: E18
+    name: Puzzle prerequisites
+    behavior: Progression can depend on activating several interconnected objects.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - TrigTest_MultiGaoActive@0x4656d0
+    - TrigTest_ALL_GAO@0x465810
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/E18.md
+    notes: trigger-test combinations; graphs are level data
+- id: CREATURE_AI
+  title: Creature AI and the food chain
+  mechanics:
+  - id: A01
+    name: Idle
+    behavior: Creature remains in its normal idle or ambient behavior.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_ETAT_ATTENTE@0x839e40
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    tests: []
+    doc: spec/evidence/A01.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A02
+    name: Patrol
+    behavior: Creature travels through a predefined area.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_ETAT_VALA@0x8599f0
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    tests: []
+    doc: spec/evidence/A02.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A03
+    name: Target detection
+    behavior: Creature notices valid nearby targets through encounter-specific detection rules.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_exec_check_vision@0x83f130
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    - kk_fps::creatures
+    tests:
+    - creatures::raptor::tests::vision_cone_and_near_radius
+    doc: spec/evidence/A03.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A04
+    name: Investigation
+    behavior: Creature may approach a suspicious or attracting event.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: A05
+    name: Target selection
+    behavior: Creature selects a player, companion, prey animal, or enemy creature.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_exec_update_best_interest@0x863360
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    - kk_fps::creatures
+    tests: []
+    doc: spec/evidence/A05.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A06
+    name: Chase
+    behavior: Creature pursues a selected target.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_ETAT_FIGHT@0x84f380
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    tests: []
+    doc: spec/evidence/A06.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A07
+    name: Attack range
+    behavior: Attacks begin when target positions satisfy attack conditions.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_exec_test_bite@0x866ed0
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    - kk_fps::creatures
+    tests:
+    - creatures::raptor::tests::bite_start_geometry
+    doc: spec/evidence/A07.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A08
+    name: Attack animation
+    behavior: Creature performs an appropriate biting, lunging, clawing, or other attack.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_ETAT_MORD@0x84d860
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    - kk_fps::creatures
+    tests: []
+    doc: spec/evidence/A08.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A09
+    name: Recovery
+    behavior: Creature experiences downtime after certain attacks.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_exec_check_requin@0x851550
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    tests: []
+    doc: spec/evidence/A09.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A10
+    name: Hit reaction
+    behavior: Damage may interrupt, stagger, or redirect the creature.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_exec_check_paf@0x849910
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    - kk_fps::creatures
+    tests:
+    - creatures::raptor::tests::colt_flinch_bands
+    doc: spec/evidence/A10.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A11
+    name: Death
+    behavior: Lethal damage causes a death animation and produces a corpse when applicable.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_ETAT_MORT@0x8535c0
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    tests:
+    - creatures::raptor::tests::death_timeline_is_5s_then_10s
+    doc: spec/evidence/A11.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A12
+    name: Corpse feeding
+    behavior: Predators may feed on dead creatures.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_ETAT_DEVORE@0x86a9f0
+    - KCadavre_Wait@0x880df0
+    data: []
+    rust:
+    - kk_mechanics::creatures::vrex_jack
+    tests:
+    - kk_mechanics::creatures::vrex_jack::tests::corpse_beats_a_calm_jack
+    - kk_mechanics::creatures::vrex_jack::tests::eating_rate
+    doc: spec/evidence/A12.md
+    notes: corpse = life fraction 0 or class 0x21 (flag 0x400); nearest unclaimed; meat bite 4 per 1.0 s
+  - id: A13
+    name: Bait distraction
+    behavior: Food can override pursuit and redirect a predator.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_ETAT_DEVORE@0x86a9f0
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    - kk_mechanics::creatures::vrex_jack
+    tests: []
+    doc: spec/evidence/A13.md
+    notes: raptor + V-Rex views (A13.md); bait item itself has no code, a bait is a corpse-class actor
+  - id: A14
+    name: Interspecies combat
+    behavior: Predators can attack and kill other creature types.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_exec_bite@0x84cae0
+    - PNJ_Raptor_ETAT_GRAB@0x847af0
+    data: []
+    rust:
+    - kk_mechanics::creatures::vrex_jack
+    tests:
+    - kk_mechanics::creatures::vrex_jack::tests::rex_prefers_raptors_to_jack_by_interest
+    doc: spec/evidence/A14.md
+    notes: rex always grabs non-human classes (victim anim 0x5b), weight 150 vs Jack 100; raptor-side reaction to rex not
+      in PNJ_Raptor
+  - id: A15
+    name: Group hunting
+    behavior: Some predators pursue targets in packs.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_exec_check_requin@0x851550
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    tests: []
+    doc: spec/evidence/A15.md
+    notes: raptor only (species 0xe of PNJ_Raptor_*); see X02
+  - id: A16
+    name: Territory restriction
+    behavior: Creature movement and attacks are limited by encounter geometry.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: A17
+    name: Threat hierarchy
+    behavior: Different species respond differently to Jack, Kong, other predators, and prey.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x6e3a70@0x6e3a70
+    data: []
+    rust:
+    - kk_mechanics::creatures::vrex_jack
+    tests: []
+    doc: spec/evidence/A17.md
+    notes: beacons (class, flags, weight, life fraction) + observer chain; class/weight table in A17.md
+  - id: A18
+    name: Scripted behavior
+    behavior: Specific encounters can override autonomous behavior with story-driven actions.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+- id: ENEMY_ARCHETYPES
+  title: Enemy creature types (each needs its own movement, attack, perception and food model)
+  mechanics:
+  - id: X01
+    name: Mini Venatosaurus
+    behavior: Small, agile pack-hunting dinosaur.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_init@0x8315a0
+    - PNJ_Raptor_exec_bite@0x84cae0
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::COMPY_HP
+    - kk_fps::creatures
+    tests:
+    - kk_mechanics::kong::ann::tests::scorpion_and_compy_tables
+    doc: spec/evidence/X01.md
+    notes: 'compy: hp 3, scale Rand(0.2,0.35), bite 0x1000 dmg 1 [C]; AI in X02'
+  - id: X02
+    name: Venatosaurus
+    behavior: Fast terrestrial hunter capable of leaping, chasing, and coordinated group pressure.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_init@0x8315a0
+    - PNJ_Raptor_exec_select_action@0x83a950
+    - PNJ_Raptor_exec_check_paf@0x849910
+    - PNJ_Raptor_exec_bite@0x84cae0
+    - PNJ_Raptor_exec_check_shoot@0x85b0a0
+    - PNJ_Raptor_exec_update_best_interest@0x863360
+    - PNJ_Raptor_ETAT_ATTENTE@0x839e40
+    - PNJ_Raptor_ETAT_MORD@0x84d860
+    data: []
+    rust:
+    - kk_mechanics::creatures::raptor
+    - kk_fps::creatures
+    tests:
+    - creatures::raptor::tests::hp_and_variant_numbers
+    doc: spec/evidence/X02.md
+    notes: hp 50/100 [C], flinch 8/11/20 [C], bite 6/6/10 reach 2.5 [C], vision 10 m cone 0.866 [C]; gait speeds are instance
+      data (gap)
+  - id: X03
+    name: Small V-Rex variant
+    behavior: Smaller but still threatening large predator encountered separately from adults.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KT_TRACK_init@0x498640
+    - PNJ_Raptor_init@0x8315a0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/X03.md
+    notes: no small-rex class; Kong rex scale 1.0 vs Jack rex 1.5 hp 2000; instance data [L]
+  - id: X04
+    name: Adult V-Rex
+    behavior: Extremely powerful hunter, destructible-environment interactions, lethal bites, invulnerable to Jack's normal
+      weapons.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_KTREX@0x4983b0
+    - KT_TRACK_init@0x498640
+    - TrigExec_RexChaseRange@0x78b900
+    - TrigExec_KTREX_Charge@0x78bd60
+    - KT_exec_zdf_zdc@0x4a5f00
+    - PNJ_Raptor_init@0x8315a0
+    - PNJ_Raptor_exec_check_paf@0x849910
+    - PNJ_Raptor_exec_update_best_interest@0x863360
+    - PNJ_Raptor_exec_bite@0x84cae0
+    - PNJ_Raptor_ETAT_GRAB@0x847af0
+    - PNJ_Raptor_exec_check_vision@0x83f130
+    data: []
+    rust:
+    - kk_fps::rex
+    - kk_gameplay::dinosaur
+    - kk_mechanics::kong::vrex
+    - kk_mechanics::creatures::vrex_jack
+    tests:
+    - kk_mechanics::kong::vrex::tests::state_ids_match_the_code
+    - kk_mechanics::creatures::vrex_jack::tests::species_and_hp_match_init
+    - kk_mechanics::creatures::vrex_jack::tests::bite_is_a_strike_on_a_healthy_jack_and_a_grab_on_a_wounded_one
+    - kk_mechanics::creatures::vrex_jack::tests::speed_smoothing
+    doc: spec/evidence/X04.md
+    notes: Jack-level rex = PNJ_Raptor species 0x10 (not KT, not TrigExec); hp 2000 never touched by guns; bite 1000/0x4104
+      vs grab-kill 0x4a10; RexChaseRange = one-frame accel override; kk_fps::rex still stand-in (gap list in X04.md)
+  - id: X05
+    name: Megapede
+    behavior: Large multi-legged predator moving across floors, walls, ceilings, and some aquatic areas; capable of lunging
+      and constricting prey.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Scolo_exec_settings@0x826150
+    - PNJ_Scolo_Init@0x8074d0
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::SCOLO_CLASSES
+    tests:
+    - kk_mechanics::kong::ann::tests::scolo_size_classes
+    doc: spec/evidence/X05.md
+    notes: 'Scolo types 0/3/4: scale 1.3/3/3, life 16/50/inv [C]'
+  - id: X06
+    name: Smaller millipedes
+    behavior: Faster multi-legged threats encountered in groups.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Scolo_exec_settings@0x826150
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::SCOLO_CLASSES
+    tests:
+    - kk_mechanics::kong::ann::tests::scolo_size_classes
+    doc: spec/evidence/X06.md
+    notes: 'Scolo types 1/2: scale 1.0/0.7, life 12/8, speed 4/7 [C]'
+  - id: X07
+    name: Giant crab
+    behavior: Clawed enemy, frequently associated with beaches and water; large varieties can damage structures.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - CR_TRACK_Init@0x710580
+    - CR_ETAT_FIGHT@0x720540
+    - C_ETAT_Not_Grabbed@0x7742e0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/X07.md
+    notes: CR combat crab + C small crab prey; data-driven [C/L]
+  - id: X08
+    name: Scorpion-like arthropods
+    behavior: Often occupy vegetation and attack when approached.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Scorpion_Init@0x4f7d30
+    - PNJ_Scorpion_ETAT_BITE@0x501bd0
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::SCORPION_CLASSES
+    tests:
+    - kk_mechanics::kong::ann::tests::scorpion_and_compy_tables
+    doc: spec/evidence/X08.md
+    notes: 3 types life 30/10/50, bite paf 3 dmg 10 [C]
+  - id: X09
+    name: Giant spiders
+    behavior: Area-denial enemies that respond to proximity, food bait, and fire.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Spider_Init@0x4f49f0
+    - PNJ_KSpider_ETAT_Attaque@0x549470
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/X09.md
+    notes: Jack spider paf 0x203/10; Kong spider paf 0x20/1 [C]
+  - id: X10
+    name: Swampcrawler
+    behavior: Aquatic or semi-aquatic predator that attacks targets in water.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - SC_ETAT_hunt@0x551b90
+    - SC_Init@0x54eb40
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/X10.md
+    notes: hunt d^2<49, stimulus d^2<400, life 20 [C]
+  - id: X11
+    name: Flying bats / Terapusmordax
+    behavior: Flying enemies that swoop, attack in groups, and can provide food for larger predators.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KBC_init@0x7c27a0
+    - BC_init@0x729de0
+    - PNJ_Corbeau_init@0x503930
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/X11.md
+    notes: three bat families; attack dmg 2/10/99 [C]
+  - id: X12
+    name: Giant flying predator
+    behavior: Larger, dangerous flying creature requiring a more substantial encounter.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KBM_ETAT_BigBat_Attack@0x4c6c60
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/X12.md
+    notes: no pterosaur class; big-bat manager/plunge attack [L]
+  - id: X13
+    name: Giant serpents
+    behavior: Major threats to Kong that strike or lunge and can retreat between attacks.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - MM_ETAT_MOVE@0x63e5e0
+    - MM_TRACK_Init@0x63bc80
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/X13.md
+    notes: no serpent class; MM sea monster candidate, flag-only paf 4 [L]
+  - id: X14
+    name: Brontosaurus
+    behavior: Generally non-hostile megafauna; the herd creates trampling and stampede hazards.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - pnjbronto_cb_afterblend@0x7f22f0
+    - pnjbronto_init@0x7ef350
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::BRONTO_STOMP_RADIUS
+    - kk_fps::creatures
+    tests:
+    - kk_mechanics::kong::ann::tests::scorpion_and_compy_tables
+    doc: spec/evidence/X14.md
+    notes: foot stomp within 3 m, paf 0x10 [C]
+  - id: X15
+    name: Giant dragonfly
+    behavior: Small prey creature used as a distraction.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_EatMe_Init@0x526420
+    - PNJ_EatMe_ETAT_Fly@0x52cf30
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/X15.md
+    notes: EatMe prey fly/fall/ground/water, beacon 0x21/150 [C]; dragonfly mapping L
+  - id: X16
+    name: Larva / grub
+    behavior: Spearable bait used to distract predators.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Worm_Init@0x79d410
+    - PNJ_Worm_ETAT_GRAB@0x79dc60
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/X16.md
+    notes: worm life 100, grab paf 1/10 [C]; bait role L
+  - id: X17
+    name: Small swampcrawler
+    behavior: Aquatic bait animal.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - SCS_init@0x505cc0
+    - SCS_attack@0x50c6b0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/X17.md
+    notes: small swampcrawler SCS_*, attack paf 0x800/1 [C]
+  - id: X18
+    name: Skull Island natives
+    behavior: Human adversaries, including spear throwers and encounters involving elevated defensive structures.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJInd_Init@0x69c560
+    - Na_Exec_Lance@0x4ea370
+    - KNG_Init@0x4c1180
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::PAF_NATIVE_CHARGE
+    tests:
+    - kk_mechanics::kong::ann::tests::scorpion_and_compy_tables
+    doc: spec/evidence/X18.md
+    notes: 'natives: beacon 0xd weight 100/200, charge paf 2/1 [C]'
+- id: KONG_MOVEMENT
+  title: 'King Kong: movement and traversal'
+  mechanics:
+  - id: K01
+    name: Third-person movement
+    behavior: Move Kong relative to third-person camera orientation.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - GG_Exec_Joy@0x695030
+    - k_exec_joy@0x8ae5f0
+    - Pad_LeftStick_Deadzone@0x43cb00
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K01.md
+    notes: see doc Gaps
+  - id: K02
+    name: Camera rotation
+    behavior: Allow camera movement independently from Kong's orientation.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - CM_Kong_Modes@0x761c70
+    - CM_Kong_Mode_Normal@0x757030
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/camera.rs
+    tests: []
+    doc: spec/evidence/K02.md
+    notes: see doc Gaps
+  - id: K03
+    name: Ground locomotion
+    behavior: Traverse terrain as a large, heavy character.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_main@0x89a120
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K03.md
+    notes: see doc Gaps
+  - id: K04
+    name: Jumping
+    behavior: Jump across gaps and between valid traversal points.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_jump@0x8c6690
+    - k_exec_check_hotspot@0x8d6b60
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K04.md
+    notes: see doc Gaps
+  - id: K05
+    name: Dodging
+    behavior: Perform evasive movements during combat.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_jump@0x8c6690
+    - k_exec_check_hotspot@0x8d6b60
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/K05.md
+    notes: see doc Gaps
+  - id: K06
+    name: Climbing
+    behavior: Climb designated vine-covered walls and climbable surfaces.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_walling@0x8a5a20
+    - k_exec_check_obstacle@0x8d42e0
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K06.md
+    notes: see doc Gaps
+  - id: K07
+    name: Vertical traversal
+    behavior: Move along climbable walls and columns.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_walling@0x8a5a20
+    - k_exec_check_obstacle@0x8d42e0
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K07.md
+    notes: see doc Gaps
+  - id: K08
+    name: Wall transitions
+    behavior: Leap between designated climbing surfaces.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_walling@0x8a5a20
+    - k_exec_check_obstacle@0x8d42e0
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K08.md
+    notes: see doc Gaps
+  - id: K09
+    name: Swinging
+    behavior: Grab suitable branches and swing across gaps.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_SwingArch@0x8d7f60
+    - k_ETAT_SwingPillar@0x8d9a40
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K09.md
+    notes: see doc Gaps
+  - id: K10
+    name: Swing release
+    behavior: Release from a branch to continue traversal.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_SwingArch@0x8d7f60
+    - k_ETAT_SwingPillar@0x8d9a40
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K10.md
+    notes: see doc Gaps
+  - id: K11
+    name: Ledge traversal
+    behavior: Move between environmental platforms.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_jump@0x8c6690
+    - k_exec_check_hotspot@0x8d6b60
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K11.md
+    notes: see doc Gaps
+  - id: K12
+    name: Carry Ann
+    behavior: Carry Ann while using compatible traversal mechanics.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_grab_ANN@0x8bfc70
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K12.md
+    notes: see doc Gaps
+  - id: K13
+    name: Heavy obstacles
+    behavior: Lift or move boulders, pillars, and other large obstacles.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KIGO_init@0x671970
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K13.md
+    notes: see doc Gaps
+  - id: K14
+    name: Environmental destruction
+    behavior: Smash designated barriers and structures.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KIMO_InitFromKit@0x4c9af0
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K14.md
+    notes: see doc Gaps
+  - id: K15
+    name: Contextual traversal
+    behavior: Select climb, swing, jump, or dodge behavior according to surroundings.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_main@0x89a120
+    data: []
+    rust:
+    - crates/kk_mechanics/src/kong/movement.rs
+    tests: []
+    doc: spec/evidence/K15.md
+    notes: see doc Gaps
+- id: KONG_COMBAT
+  title: 'King Kong: combat'
+  mechanics:
+  - id: KC01
+    name: Punch
+    behavior: Basic melee strike against nearby enemies.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_main@0x89a120
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC01.md
+    notes: combo machine, blow table; hit windows are anim data
+  - id: KC02
+    name: Repeated attacks
+    behavior: Consecutive inputs produce additional attacks.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_main@0x89a120
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC02.md
+    notes: two punches then repel/downward
+  - id: KC03
+    name: Shoulder strike
+    behavior: Powerful close-range stunning attack.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_exec_start_counter_lunge@0x884f60
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC03.md
+    notes: shoulder strike = anim 0x16 [L]
+  - id: KC04
+    name: Upward repel
+    behavior: Knock back or repel an enemy with an upward attack.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x884e70
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC04.md
+    notes: repel class 0x14
+  - id: KC05
+    name: Downward knockout
+    behavior: Follow a repel action with a powerful downward attack.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x884de0
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC05.md
+    notes: downward class 9/10
+  - id: KC06
+    name: Grab enemy
+    behavior: Physically hold a compatible enemy.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_grab
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC06.md
+    notes: grab protocol; species table missing
+  - id: KC07
+    name: Throw enemy
+    behavior: Launch grabbed enemies in the selected direction.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_grab
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC07.md
+    notes: throw impacts; velocity missing
+  - id: KC08
+    name: Bite
+    behavior: Bite enemies during suitable combat interactions.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_grab
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC08.md
+    notes: no Kong bite found; [G] grab-state strike
+  - id: KC09
+    name: Combat dodge
+    behavior: Evade incoming attacks.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x604370
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC09.md
+    notes: dodge anims e/6/7
+  - id: KC10
+    name: Knockdown
+    behavior: Powerful attacks can put an enemy into a vulnerable state.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KT_ETAT_KO_au_sol@0x4aaa00
+    - KT_exec_check_paf@0x49e580
+    data: []
+    rust:
+    - kk_mechanics::kong::vrex
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::vrex::tests::ko_timing_and_revive_floor
+    - kk_mechanics::kong::vrex::tests::knockdown_needs_fury_or_flag_2
+    - kk_mechanics::kong::vrex::tests::leaving_ko_revives_to_20
+    doc: spec/evidence/KC10.md
+    notes: life 0 -> KO 5.0 s (4.75 hold), revive floor 20, flag 0x4a/0x2 rules [C]
+  - id: KC11
+    name: Jaw-break finisher
+    behavior: Execute a finishing animation on a defeated V-Rex.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KT_ETAT_Finish@0x4b98d0
+    - KT_exec_propose_grab@0x49ee50
+    data: []
+    rust:
+    - kk_mechanics::kong::vrex
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::vrex::tests::finish_accepts_only_when_down_wounded_and_close
+    - kk_mechanics::kong::vrex::tests::finish_mash_pull_values
+    - kk_mechanics::kong::vrex::tests::finish_mash_idle_kong_loses_progress_and_rex_escapes
+    - kk_mechanics::kong::vrex::tests::ko_to_finish_needs_finish_message_then_mort
+    doc: spec/evidence/KC11.md
+    notes: finish offered while KO+wounded within 22; 2.74 s lock, mash tug-of-war, cursor <102 escapes [C]; frame rate open
+  - id: KC12
+    name: Throw finisher
+    behavior: Perform an alternative finishing attack on a downed predator.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KT_ETAT_grabbed@0x4abd50
+    - KT_ETAT_projectile@0x4a1fa0
+    data: []
+    rust:
+    - kk_mechanics::kong::vrex
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::vrex::tests::grab_end_states
+    doc: spec/evidence/KC12.md
+    notes: throw anim 0x7a -> projectile, 20.0 impact; slams 0x8d/0xa1 at life 0 -> mort [C]; Kong-side selection not audited
+  - id: KC13
+    name: Button-mash finish
+    behavior: Certain executions require repeated button presses.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_grab_mashing@0x8cca60
+    - KIMO_ETAT_Mashing@0x4c8090
+    - KT_ETAT_Finish@0x4b98d0
+    data: []
+    rust:
+    - kk_mechanics::kong::vrex
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::vrex::tests::finish_mash_pressing_every_frame_wins
+    - kk_mechanics::kong::fury::tests::mash_and_pull_constants
+    doc: spec/evidence/KC13.md
+    notes: mash equations + KIMO message protocol [C]; per-kit numbers (press counts) are level data
+  - id: KC14
+    name: Environmental weapon
+    behavior: Pick up and wield tree trunks or other usable objects.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_main_souche@0x8e2250
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC14.md
+    notes: KIGO weapon swings
+  - id: KC15
+    name: Creature weapon
+    behavior: Grab certain creatures and use them offensively.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KR_ETAT_paf
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC15.md
+    notes: creature weapon
+  - id: KC16
+    name: Environmental kills
+    behavior: Throw or knock enemies into lethal environmental hazards.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_main_souche@0x8e2250
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC16.md
+    notes: environmental kills
+  - id: KC17
+    name: Multiple opponents
+    behavior: Defend against several creatures simultaneously.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_exec_select_opponent
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC17.md
+    notes: aim assist cone 0.7071 reach 8
+  - id: KC18
+    name: Defensive positioning
+    behavior: Use dodging, obstacles, and attack timing to survive powerful enemies.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KT_ETAT_paf
+    data: []
+    rust:
+    - kk_mechanics::kong::combat
+    - kk_fps::kong
+    tests: []
+    doc: spec/evidence/KC18.md
+    notes: receiver, repeated hit 30/4s
+  - id: KF01
+    name: Fury activation
+    behavior: Repeatedly press Triangle to enter fury mode.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_main@0x89a120
+    - k_exec_fury@0x8b1d00
+    - fn@0x883430@0x883430
+    - fn@0x883700@0x883700
+    - fn@0x884f00@0x884f00
+    data: []
+    rust:
+    - kk_mechanics::kong::fury
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::fury::tests::start_sets_18s_and_full_meter
+    - kk_mechanics::kong::fury::tests::hits_extend_1_5s_capped_15
+    - kk_mechanics::kong::fury::tests::meter_gain_and_soft_cap
+    - kk_mechanics::kong::fury::tests::pound_window_fires_fury_when_held_past_frame_130
+    - kk_mechanics::kong::fury::tests::pound_window_times_out_without_input
+    - kk_mechanics::kong::fury::tests::pound_window_other_button_blocks_fury
+    doc: spec/evidence/KF01.md
+    notes: phase 3 + fury button -> pound (anim 0xab) -> hold past frame 130 -> fury 18 s [C]; meter 0.1/hit is HUD only;
+      button mapping L
+  - id: KF02
+    name: Chest pounding
+    behavior: Kong performs a powerful chest-beating animation.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x884f00@0x884f00
+    - KT_exec_check_fury@0x4b95d0
+    data: []
+    rust:
+    - kk_mechanics::kong::fury
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::fury::tests::pound_window_fires_fury_when_held_past_frame_130
+    doc: spec/evidence/KF02.md
+    notes: pound anim 0xab/roar 0xad, shout radius +10/s to 30, creature reaction radii 30/35/50 [C]
+  - id: KF03
+    name: Increased aggression
+    behavior: Attacks become faster and more forceful.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_main@0x89a120
+    data: []
+    rust:
+    - kk_mechanics::kong::fury
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::fury::tests::damage_doubles_and_becomes_heavy
+    doc: spec/evidence/KF03.md
+    notes: anim speed x1.25 in fury [C]
+  - id: KF04
+    name: Increased damage
+    behavior: Fury attacks inflict greater damage.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x88e0c0@0x88e0c0
+    data: []
+    rust:
+    - kk_mechanics::kong::fury
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::fury::tests::damage_doubles_and_becomes_heavy
+    doc: spec/evidence/KF04.md
+    notes: melee 10 -> 20, class 1 -> 2 [C]; other attacks not audited
+  - id: KF05
+    name: Increased resilience
+    behavior: Kong becomes more resistant to enemy attacks.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_reflex@0x8a4360
+    - k_ETAT_grab_mashing@0x8cca60
+    - k_exec_detect_paf@0x8c3fc0
+    data: []
+    rust:
+    - kk_mechanics::kong::fury
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::fury::tests::life_zero_rules
+    - kk_mechanics::kong::fury::tests::mash_and_pull_constants
+    doc: spec/evidence/KF05.md
+    notes: no flat reduction; life 0 -> 10.0 revive, no last stand, rex I_Finish blocked, mash decay x0.5, pull decay 3 vs
+      20 [C]
+  - id: KF06
+    name: Visual transformation
+    behavior: Environmental color grading becomes warmer or golden.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_exec_fury@0x8b1d00
+    data: []
+    rust:
+    - kk_mechanics::kong::fury
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::fury::tests::fx_targets
+    doc: spec/evidence/KF06.md
+    notes: fx blend formulas [C]; colour values are level data, warm/golden unconfirmed
+  - id: KF07
+    name: Fury termination
+    behavior: Eventually return to standard combat behavior.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_exec_fury@0x8b1d00
+    - k_ETAT_paf@0x8c24a0
+    data: []
+    rust:
+    - kk_mechanics::kong::fury
+    - kk_fps::kong
+    tests:
+    - kk_mechanics::kong::fury::tests::timer_runs_down_except_in_mash_actions
+    - kk_mechanics::kong::fury::tests::kong_hit_shortens_fury
+    doc: spec/evidence/KF07.md
+    notes: timer countdown, paused in mash actions, hit penalties, cleared on death/cine [C]
+- id: KONG_COMPANION
+  title: 'Kong: Ann Darrow interaction'
+  mechanics:
+  - id: AN01
+    name: Pick up Ann
+    behavior: Pick up Ann when standing near her.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_TEST_Grab@0x8eaaa0
+    - k_ETAT_grab_ANN@0x8bfc70
+    - KAnn_exec_PROPOSE_KKGrab_Object@0x5f59a0
+    - KAnn_ETAT_grabbed_KK@0x5f0bd0
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::propose_kk_grab
+    tests:
+    - kk_mechanics::kong::ann::tests::kong_grab_proposal_is_7m_and_weight_0_001
+    doc: spec/evidence/AN01.md
+    notes: grab proposal weight 0.001 within 7 m, |dz|<=5 [C]; main Ann doc
+  - id: AN02
+    name: Carry Ann
+    behavior: Transport her in Kong's hand.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KAnn_ETAT_grabbed_KK@0x5f0bd0
+    - k_reflex@0x8a4360
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::AnnState
+    tests: []
+    doc: spec/evidence/AN02.md
+    notes: held state id 2, blend 10/s, released on hand category 8/9 [C]
+  - id: AN03
+    name: Place Ann
+    behavior: Set her down at a valid position.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_grab_ANN@0x8bfc70
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::putdown_probe
+    tests:
+    - kk_mechanics::kong::ann::tests::spider_jab_cycle_and_probe
+    doc: spec/evidence/AN03.md
+    notes: 4 raycast probes of 5.0 behind Kong; release at timer >=0.3 s [C]
+  - id: AN04
+    name: Ann vulnerability
+    behavior: Ann is exposed to enemy attacks when not protected.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KAnn_exec_CHECK_paf@0x5f71b0
+    - KAnn_ETAT_paf@0x5f7370
+    - KAnn_ETAT_mort@0x5fa820
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::ann_hit_accepted
+    tests:
+    - kk_mechanics::kong::ann::tests::any_accepted_hit_kills_her_via_paf_then_mort
+    doc: spec/evidence/AN04.md
+    notes: 'no HP: any accepted hit -> paf -> mort; 0x80 always accepted [C]'
+  - id: AN05
+    name: Ann navigation
+    behavior: Ann can navigate certain pathways independently.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KAnn_ETAT_follow_network@0x5fb530
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/AN05.md
+    notes: default state 9 follow_network; speeds 2/4 [L]
+  - id: AN06
+    name: Cooperative puzzles
+    behavior: Ann can interact with certain devices or fire sources.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KAnn_ETAT_action@0x5fd350
+    - KAnn_exec_action_javelin_throw@0x5fee00
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::next_throw_interval
+    tests:
+    - kk_mechanics::kong::ann::tests::javelin_numbers
+    doc: spec/evidence/AN06.md
+    notes: action ids 1-9; throw delay 0.5 s then Rand(4,7) s [C]
+  - id: AN07
+    name: Combat restrictions
+    behavior: Some Kong combat and object interactions require putting Ann down.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_ETAT_grab@0x8dae10
+    - k_ETAT_finished@0x8b5c80
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/AN07.md
+    notes: grab/finisher auto-release Ann via hand category 9 [C]
+  - id: AN08
+    name: Companion rescue
+    behavior: Kong can defeat enemies threatening Ann.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KAnn_exec_action_interaction_attack_spider@0x601a40
+    - KAnn_exec_action_interaction_attack_raptor@0x600f90
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::spider_jab_anim
+    tests: []
+    doc: spec/evidence/AN08.md
+    notes: Ann gestures per threat class; spider window 2.5..13 [C]
+  - id: AN09
+    name: Scripted capture
+    behavior: Certain enemies can abduct Ann during story encounters.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KAnn_ETAT_grabbed_bat@0x5fa9a0
+    - KAnn_ETAT_grabbed_trex@0x5fd090
+    - TrigExec_KBigBat_Grab_Ann@0x78c370
+    data: []
+    rust:
+    - kk_mechanics::kong::ann::next_state_after_hit
+    tests:
+    - kk_mechanics::kong::ann::tests::trex_grab_proposal_needs_10_s_and_4_m
+    doc: spec/evidence/AN09.md
+    notes: bat/rex abduction states 7/0xd; rex jaw word 0x20000 kills [C]
+  - id: AN10
+    name: Rescue objectives
+    behavior: Rescue sequences become gameplay objectives.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - TrigTest_KBigBat_IsGrabbingAnn
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/AN10.md
+    notes: objectives are trigger globals Univers+0x8908/890c/891c/8920/8998/899c [C]
+  - id: AN11
+    name: Protected traversal
+    behavior: Kong can transport Ann through hazardous environments.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - k_reflex@0x8a4360
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/AN11.md
+    notes: hand vs shoulder carry mode (Univers+0x890c) [L]
+- id: NPC_COMPANIONS
+  title: Human companion AI (Ann, Hayes, Jimmy, Carl Denham)
+  mechanics:
+  - id: N01
+    name: Player following
+    behavior: Companions follow predefined routes or follow Jack.
+    status: PARTIAL
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - H_ETAT_IA_suivi@0x57f1b0
+    - NET_Follower_ETAT_run@0x781b70
+    - NET_Follower_exec_compute_position@0x780a00
+    - NET_Follower_ETAT_wait@0x781ea0
+    data: []
+    rust:
+    - kk_mechanics::companions::follow_distance
+    - kk_mechanics::companions::NetFollowerWait
+    tests: []
+    doc: spec/evidence/N01.md
+    notes: formation 4/7/6/5 m (Ann/Hayes/Denham/slot6), tight 5.5/3/4.5/4.5, sprint >8 m [C]; path search not ported; PLKJ_*
+      is not companion code
+  - id: N02
+    name: Contextual dialogue
+    behavior: Characters speak in response to encounters and progression.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - TrigCINE_Speech@0x765960
+    - H_CINE_Speech@0x584300
+    - SPEECH_TreatRequest@0x6f71e0
+    - InteractiveDoor_exec_speech@0x877df0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/N02.md
+    notes: 2 speech channels, scripted + state-driven + door cues; keys 0xd0005xxx
+  - id: N03
+    name: Call interaction
+    behavior: Jack can call or interact with nearby companions.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_INTERACTION_propose@0x5d8640
+    - H_INTERACTION_check@0x5d85c0
+    - H_INTERACTION_add_data@0x5d84e0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/N03.md
+    notes: prompt/proposal system; companion answers with psss exchange
+  - id: N04
+    name: Weapon assistance
+    behavior: Armed companions attack threatening creatures.
+    status: PARTIAL
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - H_ETAT_IA_tir@0x5a1610
+    - H_exec_validate_tir@0x5ad900
+    - H_ETAT_IA_help@0x5b1720
+    - H_callback_tir@0x5bbd10
+    data: []
+    rust:
+    - kk_mechanics::companions::shoot_should_exit
+    - kk_mechanics::companions::ENEMY_KIND_ROWS
+    tests: []
+    doc: spec/evidence/N04.md
+    notes: same weapons/damage as Jack; align cos>=0.5; retry 3.0 s; safe distance table per enemy kind [C]
+  - id: N05
+    name: Ammunition assistance
+    behavior: Hayes can provide supplies.
+    status: PARTIAL
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - H_ETAT_IA_psss@0x5d88a0
+    - Jack_ExchangeWeaponSlots@0x53a8e0
+    - TrigCINE_ResetMunitionHayes@0x7665d0
+    data: []
+    rust:
+    - kk_mechanics::companions::swap_firearms
+    - kk_mechanics::companions::reset_munition_hayes
+    tests: []
+    doc: spec/evidence/N05.md
+    notes: see I09
+  - id: N06
+    name: Door operation
+    behavior: Companions cooperate on gates and cranks.
+    status: PARTIAL
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - InteractiveDoor_loop@0x876330
+    - H_ETAT_IA_use@0x5d2710
+    data: []
+    rust:
+    - kk_mechanics::companions::pillar_gate
+    - kk_mechanics::companions::rank_helpers
+    tests: []
+    doc: spec/evidence/N06.md
+    notes: see E09/E11
+  - id: N07
+    name: Torch operation
+    behavior: Ann can carry or use fire sources.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - interactive_torche@0x4cd540
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/N07.md
+    notes: 'negative: no Ann torch code found (binding only)'
+  - id: N08
+    name: Predator awareness
+    behavior: Companions react to dangerous creatures.
+    status: PARTIAL
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - H_exec_read_world@0x586420
+    - H_ETAT_IA_tir@0x5a1610
+    data: []
+    rust:
+    - kk_mechanics::companions::enemy_kind_row
+    - kk_mechanics::companions::companion_alert_radius_sq
+    tests: []
+    doc: spec/evidence/N08.md
+    notes: per-kind safe/alert distances from uni_init; vision not ported
+  - id: N09
+    name: Retreat behavior
+    behavior: Companions move toward safety during threats.
+    status: PARTIAL
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - H_ETAT_IA_hide@0x5ab150
+    - H_ETAT_IA_tir@0x5a1610
+    - H_exec_ch_hide_0D@0x591890
+    data: []
+    rust:
+    - kk_mechanics::companions::shoot_should_exit
+    tests: []
+    doc: spec/evidence/N09.md
+    notes: retreat = leave shoot state inside safe distance + cover nodes; no flee point
+  - id: N10
+    name: Companion injury
+    behavior: Enemies can attack and injure companions.
+    status: VERIFIED
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - H_exec_ch_Stimulus_Paf@0x5a3060
+    - H_ETAT_IA_stunned@0x5c6e20
+    - H_ETAT_ann_heal@0x5d0380
+    - H_TRACK_Reflex@0x58de70
+    data: []
+    rust:
+    - kk_mechanics::companions::CompanionWounds
+    tests: []
+    doc: spec/evidence/N10.md
+    notes: status 0/1/2/3; hurt 15.5/10.5/5.5; death only 9 s after wound; Ann self-recovers 5 s, others 8 s then 30 s; heal
+      5.0/2.0 s. wounds.rs labels are shifted by one
+  - id: N11
+    name: Companion protection
+    behavior: Some objectives require keeping allies alive.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_ETAT_IA_mort@0x5a3e80
+    - Stats_OnPlayerDeath@0x52f240
+    data: []
+    rust:
+    - kk_mechanics::companions::jack_death_is_final
+    tests: []
+    doc: spec/evidence/N11.md
+    notes: no code-level mission failure for companion death; Jack death delayed by healer (4/8 s)
+  - id: N12
+    name: Scripted waiting
+    behavior: NPCs wait for Jack to complete required interactions.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - TrigCINE_WaitDisponibility@0x7664e0
+    - TrigCINE_Wait@0x765480
+    - H_exec_ch_msg@0x5b3d70
+    data: []
+    rust:
+    - kk_mechanics::companions::cine
+    tests: []
+    doc: spec/evidence/N12.md
+    notes: script messages 0x186a1..a8, available flag 0x800 after 1 s
+  - id: N13
+    name: Formation progression
+    behavior: Companions move ahead once progression conditions are satisfied.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_exec_ch_msg@0x5b3d70
+    - TrigExec_EtatHumain@0x78b3c0
+    data: []
+    rust:
+    - kk_mechanics::companions::force_etat_give_item
+    tests: []
+    doc: spec/evidence/N13.md
+    notes: no formation-ahead logic in code; script FORCE_ETAT parameters
+  - id: N14
+    name: Cinematic events
+    behavior: NPCs participate in scripted sequences without always interrupting player control.
+    status: PARTIAL
+    evidence: INFERRED_IMPLEMENTATION
+    binary:
+    - H_exec_ch_msg@0x5b3d70
+    - H_CINE_Speech@0x584300
+    - H_CINE_Wait@0x585cb0
+    data: []
+    rust:
+    - kk_mechanics::companions::cine
+    tests: []
+    doc: spec/evidence/N14.md
+    notes: 20-message queue per human, consumed only in idle-like states
+- id: SCRIPTED_ENCOUNTERS
+  title: Boss encounters and major set pieces
+  mechanics:
+  - id: B01
+    name: Jack versus V-Rex
+    behavior: Evade, distract, seek cover, protect companions, and escape.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - PNJ_Raptor_exec_check_msg@0x869fa0
+    - TrigCINE_Roar@0x766390
+    data:
+    - fx/rex_encounter_03e.json
+    rust:
+    - kk_fps::rex
+    - kk_fps::batch
+    - kk_mechanics::creatures::vrex_jack
+    tests: []
+    doc: spec/evidence/B01.md
+    notes: 03E = cinematics (msg 0x186a1..ac) over a free territory AI; hide/bait/noise rules in X04,G17,A12; cinematic bodies
+      not decoded
+  - id: B02
+    name: Kong versus V-Rex
+    behavior: Dodge, punch, stun, grapple, knock down, finish.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KT_TRACK_reflex@0x49a430
+    - KT_exec_check_paf@0x49e580
+    - KT_ETAT_fight_KONG@0x4a33e0
+    - KT_ETAT_KO_au_sol@0x4aaa00
+    - KT_ETAT_grabbed@0x4abd50
+    - KT_ETAT_Finish@0x4b98d0
+    - KT_exec_zdf_zdc@0x4a5f00
+    - KT_exec_propose_grab@0x49ee50
+    data:
+    - Rex+0xf4..0x100 Life max/start/ratio (level instance data, not available)
+    rust:
+    - kk_mechanics::kong::vrex
+    tests:
+    - kk_mechanics::kong::vrex::tests::state_ids_match_the_code
+    - kk_mechanics::kong::vrex::tests::life_gauge_matches_fun_00770af0
+    - kk_mechanics::kong::vrex::tests::damage_rule_wounded_rex_only_hurt_by_0x4a_flags
+    - kk_mechanics::kong::vrex::tests::counter_attack_after_three_light_or_two_heavy_hits
+    - kk_mechanics::kong::vrex::tests::attack_bands
+    - kk_mechanics::kong::vrex::tests::life_zero_in_fight_state_knocks_down_for_5s
+    - kk_mechanics::kong::vrex::tests::charge_into_wall_costs_20_life
+    doc: spec/evidence/B02.md
+    notes: 18 KT states + ids + priority-ordered transitions [C]; life gauge, 20.0 impact, KO 5.0/4.75, hit rules, counters
+      3/2s 2/2.5s [C]; instance life numbers open
+  - id: B03
+    name: Kong versus multiple V-Rexes
+    behavior: Fight several large predators while protecting Ann.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: B04
+    name: Giant flying predators
+    behavior: Dodge aerial strikes, counterattack, defeat bosses, rescue Ann.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: B05
+    name: Giant serpents
+    behavior: React to lunges, pursue retreating enemies, use close-range combat.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: B06
+    name: Brontosaurus herd
+    behavior: Navigate moving megafauna, avoid trampling, and survive encounters with predators.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: B07
+    name: River rafting
+    behavior: Remain aboard moving rafts while defending against wildlife and scripted threats.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: B08
+    name: Native attacks
+    behavior: Avoid thrown spears and destroy or bypass enemy structures.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: B09
+    name: New York rampage
+    behavior: Destroy vehicles, break through barricades, and climb urban structures.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: B10
+    name: Empire State Building
+    behavior: Climb the skyscraper while responding to attacking aircraft.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: B11
+    name: Alternate ending
+    behavior: Pilot a seaplane and shoot aircraft and searchlights to save Kong.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+- id: WORLD_SYSTEMS
+  title: World and environmental presentation
+  mechanics:
+  - id: W01
+    name: Environmental collision
+    behavior: Characters and creatures interact with world geometry.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: W02
+    name: Water surfaces
+    behavior: Water provides appropriate visual and movement effects.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - H_IsWadeMode@0x689ff0
+    - MM_Exec_Water_Height@0x644070
+    data: []
+    rust:
+    - kk_mechanics::environment::water_effect_scale
+    tests:
+    - environment::tests::water_scale_fades_between_50_and_200
+    doc: spec/evidence/W02.md
+    notes: wade materials 3/9/10/11/12; water FX full <=50, zero >=200 [C]
+  - id: W03
+    name: Waterfall effects
+    behavior: Waterfalls and rapids appear in encounters and traversal.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: W04
+    name: Vegetation interaction
+    behavior: Brush can conceal creatures, obstruct movement, and burn.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - KInteractive_Shrub@0x6a80a0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/W04.md
+    notes: vegetation = material 8 ground; concealment has no code
+  - id: W05
+    name: Ambient wildlife
+    behavior: Non-hostile creatures populate the environment.
+    status: NOT_STARTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: null
+    notes: ''
+  - id: W06
+    name: Creature sound
+    behavior: Roars, shrieks, and other sounds announce threats.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::sfx
+    - kk_fps::fx
+    tests: []
+    doc: spec/evidence/W06.md
+    notes: original V-Rex roar + roar shake (research/pc/fx/ROAR_SHAKE*.md)
+  - id: W07
+    name: Dynamic encounter music
+    behavior: Music changes with danger, combat, and injury.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - SM_Scan_Phase_Kit@0x51e2b0
+    data: []
+    rust:
+    - kk_mechanics::progression::MUSIC_PERSIST_TICKS
+    tests: []
+    doc: spec/evidence/W07.md
+    notes: ''
+  - id: W08
+    name: Screen feedback
+    behavior: Camera effects emphasize powerful creature attacks.
+    status: IMPLEMENTED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust:
+    - kk_fps::fx
+    tests: []
+    doc: null
+    notes: ''
+  - id: W09
+    name: Interactive scenery
+    behavior: Gates, props, structures, and fire sources respond to player actions.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - interactive_torche@0x4cd540
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/W09.md
+    notes: aggregate of E08-E14 object systems
+  - id: W10
+    name: Scripted environmental events
+    behavior: Collapses, obstructions, and destruction support story progression.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - TrigExec_BurnParams@0x78aee0
+    - TrigExec_WaterEnable@0x78c1e0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/W10.md
+    notes: triggers + save-table persistence
+- id: GAME_PROGRESSION
+  title: Progression, checkpoints and unlockables
+  mechanics:
+  - id: P01
+    name: Story chapters
+    behavior: Progress through individually defined narrative levels.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - uni_go@0x794ed0
+    data: []
+    rust:
+    - kk_mechanics::progression::CAMPAIGN
+    tests: []
+    doc: spec/evidence/P01.md
+    notes: ''
+  - id: P02
+    name: Character switching
+    behavior: Switch between Jack and Kong in predetermined chapters.
+    status: PARTIAL
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - uni_go@0x794ed0
+    data: []
+    rust:
+    - kk_mechanics::progression::CAMPAIGN
+    tests: []
+    doc: spec/evidence/P02.md
+    notes: ''
+  - id: P03
+    name: Chapter objectives
+    behavior: Complete mandatory escape, combat, rescue, or puzzle conditions.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/P03.md
+    notes: ''
+  - id: P04
+    name: Automatic checkpoints
+    behavior: Save progress at designed points during gameplay.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - ES_CheckPoint@0x6f49a0
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/P04.md
+    notes: ''
+  - id: P05
+    name: Restart from checkpoint
+    behavior: Restore a previous gameplay state after death.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/P05.md
+    notes: ''
+  - id: P06
+    name: Chapter replay
+    behavior: Replay previously completed sections.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/P06.md
+    notes: ''
+  - id: P07
+    name: Weapon persistence
+    behavior: Carry equipment between applicable consecutive story chapters.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x52ef90@0x52ef90
+    data: []
+    rust:
+    - kk_mechanics::progression::split_ammo
+    tests: []
+    doc: spec/evidence/P07.md
+    notes: ''
+  - id: P08
+    name: Chapter scoring
+    behavior: Evaluate performance after completing a chapter.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x4e1330@0x4e1330
+    data: []
+    rust:
+    - kk_mechanics::progression::chapter_score
+    tests: []
+    doc: spec/evidence/P08.md
+    notes: ''
+  - id: P09
+    name: Kill bonuses
+    behavior: Award points for eligible enemies defeated.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x4e1330@0x4e1330
+    data: []
+    rust:
+    - kk_mechanics::progression::chapter_score
+    tests: []
+    doc: spec/evidence/P09.md
+    notes: ''
+  - id: P10
+    name: Resource-use penalties
+    behavior: Penalize certain ammunition or spear usage.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x4e1330@0x4e1330
+    data: []
+    rust:
+    - kk_mechanics::progression::chapter_score
+    tests: []
+    doc: spec/evidence/P10.md
+    notes: ''
+  - id: P11
+    name: Damage penalties
+    behavior: Penalize deaths and injuries, including companion injuries.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x4e1330@0x4e1330
+    data: []
+    rust:
+    - kk_mechanics::progression::chapter_score
+    tests: []
+    doc: spec/evidence/P11.md
+    notes: ''
+  - id: P12
+    name: Kong performance
+    behavior: Evaluate attacks and time in Kong chapters.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x4e1330@0x4e1330
+    data: []
+    rust:
+    - kk_mechanics::progression::chapter_score
+    tests: []
+    doc: spec/evidence/P12.md
+    notes: ''
+  - id: P13
+    name: Unlockable extras
+    behavior: Unlock visual filters, artwork, and other content through progress or score.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x4dc1b0@0x4dc1b0
+    data: []
+    rust:
+    - kk_mechanics::progression::unlock_mask
+    tests: []
+    doc: spec/evidence/P13.md
+    notes: ''
+  - id: P14
+    name: Alternate ending
+    behavior: Unlock an additional finale through replay scoring.
+    status: VERIFIED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary:
+    - fn@0x4dc1b0@0x4dc1b0
+    data: []
+    rust:
+    - kk_mechanics::progression::unlock_mask
+    tests: []
+    doc: spec/evidence/P14.md
+    notes: ''
+  - id: P15
+    name: Options
+    behavior: Toggle crosshairs, inventory display, subtitles, sound, and other settings.
+    status: RESEARCHED
+    evidence: REQUIRES_BINARY_VERIFICATION
+    binary: []
+    data: []
+    rust: []
+    tests: []
+    doc: spec/evidence/P15.md
+    notes: ''

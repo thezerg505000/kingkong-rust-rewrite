@@ -1,0 +1,52 @@
+# Rust
+/target/
+**/target/
+*.pdb
+
+# ---- NEVER COMMIT GAME CONTENT ----
+# assets rebuilt from the user's own copy of the game
+/assets/
+/assets_dev/
+/game_assets/
+/dist/
+/out*/
+game_path.txt
+# game archives, streams, images, executables
+*.bf
+*.bin
+*.dec
+*.raw
+*.iso
+*.elf
+*.ELF
+*.exe
+*.dll
+SLUS_*
+# extracted or rendered media
+*.glb
+*.gltf
+*.png
+*.jpg
+*.jpeg
+*.dds
+*.tga
+*.wav
+*.ogg
+*.mp3
+*.mp4
+*.avi
+# research dumps and knowledge bases
+*.pkl
+/research/
+/kb/
+*.gpr
+*.rep/
+
+# Python / OS / editors
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.bak

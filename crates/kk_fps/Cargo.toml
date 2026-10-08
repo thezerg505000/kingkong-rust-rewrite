@@ -1,0 +1,48 @@
+[package]
+name = "kk-fps"
+version = "0.1.0"
+edition = "2021"
+description = "First-person Jack shooter test slice rebuilt from King Kong (2005) PC/PS2 data"
+
+[features]
+# Windows/desktop default: gamepad + audio backends. The Linux CI check builds
+# with `--no-default-features` because the build box has no udev/alsa headers.
+default = ["gamepad", "audio"]
+gamepad = ["bevy/bevy_gilrs"]
+audio = ["bevy/bevy_audio", "bevy/vorbis", "bevy/wav"]
+
+[dependencies]
+kk-mechanics = { path = "../kk_mechanics" }
+rand = "0.8"
+serde_json = "1"
+
+[dependencies.bevy]
+version = "0.16.1"
+default-features = false
+features = [
+    "std",
+    "async_executor",
+    "multi_threaded",
+    "animation",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_gizmos",
+    "bevy_gltf",
+    "bevy_log",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_scene",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_window",
+    "bevy_winit",
+    "default_font",
+    "hdr",
+    "png",
+    "smaa_luts",
+    "tonemapping_luts",
+    "x11",
+]
+

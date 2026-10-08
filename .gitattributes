@@ -1,0 +1,5 @@
+* text=auto
+*.rs text eol=lf
+*.md text eol=lf
+*.bat text eol=crlf
+*.wgsl text eol=lf

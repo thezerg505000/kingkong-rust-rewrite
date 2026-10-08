@@ -1,0 +1,18 @@
+[package]
+name = "kk-extract"
+version = "0.1.0"
+edition = "2021"
+description = "Builds the game assets from the user's own King Kong (2005) PC files. Ships no game data."
+
+[lib]
+name = "kk_extract"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kk-extract"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+png = "0.17"
+walkdir = "2"
