@@ -5,7 +5,7 @@ covered in fur, and his body had none while the arms did.
 
 ## Per-vertex fur length [C]
 
-* PC fur vertex shader `vsfur.hlsl` (the shader table entry is referenced by `FUN_00a054b0`):
+* PC fur vertex shader `vsfur.hlsl` (the shader table entry is referenced by `fn@0x00a054b0`):
   `Input.RLI.a = 1.0 - Input.RLI.a; fScale = g_fFurNormalOffset * Input.RLI.a; Position += Normal * fScale;
   TexCoord0 += g_vFurTextureOffset`. The shell offset is scaled per vertex by **1 − alpha of the vertex's RLI
   colour**.

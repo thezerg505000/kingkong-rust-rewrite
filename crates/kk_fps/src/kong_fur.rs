@@ -15,7 +15,7 @@
 //! * `S_Kong_Weta_Def` (body):      len 12,  a 2, b 10,   10 layers; fur layer 0x83009e48, words (0xc1360001, 0x41bb0000)
 //! * `S_XE_KongBrasG/D` (arms):     len 42,  a 1, b -40,  22 layers; same material as the body
 //! * `S_Kong_Weta_Def_TeteHDef01`:  len 15.05, a 2, b 20, 12 layers; face fur layer 0x5600d6bd, words (0xc0023c05, 0xbffc3f00)
-//! Per-vertex fur length [C]: the PC fur vertex shader (`vsfur.hlsl`, `FUN_00a054b0`) does
+//! Per-vertex fur length [C]: the PC fur vertex shader (`vsfur.hlsl`, `fn@0x00a054b0`) does
 //! `RLI.a = 1 - RLI.a; pos += normal * g_fFurNormalOffset * RLI.a`, so the length comes from the alpha of the object's
 //! RLI array (the per-instance vertex colours of the GAO visual, `RLI\x80` records after each Kong GEO, one u32 per GEO
 //! vertex), not from the GEO. Kong's RLI alphas: body 1301 verts (about half long fur, the chest/palms/feet bare),
