@@ -22,7 +22,10 @@
 - **Bullets on dinos**: a creature in front of a wall now stops the bullet (no stone impact behind it); the flesh
   impact/blood FX is spawned by the creature hit [G look; the game's raptor blood hook is an empty stub].
 - New batches: `b11_gate_walk` (5 checks), `b12_slice_spears` (5). b7 has 3 more (gate probes + smash): 52/52.
-- **Gaps**: 07D sound bank (rex/Kong reaction and mash sounds), `+0xa38` (sideways KO), ODE rigid-body parameters,
+- **Sound banks decoded** (KC19): per-object banks (resource cb 0xa346e0) resolved against Sound_Common.bf; the rex
+  plays KTrex_paf_small / KTrex_paf_big / KTrex_attack, Kong Kong_grab_trex / Kong_grab_advantage / Kong_break_jaw /
+  Kong_paf_*, when the user's extracted sound set has them (kk_extract converts every `.smd`).
+- **Gaps**: looping sounds (mash loops 0x36/0x37), `+0xa38` (sideways KO), ODE rigid-body parameters (ODE01),
   spear arm clips (the held spear is drawn alone), rack bone layout, bone-spear model, KT locomotion root motion,
   `trex_kt.glb` / rack prop not produced by `kk_extract` yet (Python research tools only).
 

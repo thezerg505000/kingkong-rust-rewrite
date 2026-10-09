@@ -36,6 +36,9 @@ pub struct LevelCollision {
     pub box_names: Vec<String>,
     /// steep faces of the level's opaque meshes (meshcol.rs): Jack's walls
     pub walls: Option<crate::meshcol::WallMesh>,
+    /// number of ground triangles from the exported collision (the mesh's extra upward faces follow):
+    /// the fight arena, the cameras and the spawn heights keep using only these (`ground_base`)
+    pub base_len: usize,
 }
 
 const CELL: f32 = 4.0;
@@ -126,7 +129,8 @@ impl LevelCollision {
                     .collect()
             })
             .unwrap_or_default();
-        Some(Self { tris, grid, boxes, obstacles, box_names, walls: None })
+        let base_len = tris.len();
+        Some(Self { tris, grid, boxes, obstacles, box_names, walls: None, base_len })
     }
 
     /// Merge more walkable triangles (the level mesh's upward faces) into the ground set and its grid.
@@ -161,13 +165,13 @@ impl LevelCollision {
                     return Some(t);
                 }
             }
-            if let Some(f) = self.ground(p.x, p.z, p.y, 0.0) {
-                if let Some(top) = self.ground(p.x, p.z, p.y + 6.0, 0.0) {
+            if let Some(f) = self.ground_base(p.x, p.z, p.y, 0.0) {
+                if let Some(top) = self.ground_base(p.x, p.z, p.y + 6.0, 0.0) {
                     if top > p.y + 0.3 && top - f > 1.6 {
                         return Some(t);
                     }
                 }
-            } else if self.ground(p.x, p.z, p.y + 6.0, 0.0).is_some_and(|top| top > p.y + 0.3) {
+            } else if self.ground_base(p.x, p.z, p.y + 6.0, 0.0).is_some_and(|top| top > p.y + 0.3) {
                 // under the ground surface with nothing below it
                 return Some(t);
             }
@@ -183,9 +187,21 @@ impl LevelCollision {
 
     /// Ground height under (x,z): the highest triangle not more than `step` above `y_ref`.
     pub fn ground(&self, x: f32, z: f32, y_ref: f32, step: f32) -> Option<f32> {
+        self.ground_in(x, z, y_ref, step, usize::MAX)
+    }
+
+    /// `ground` over the exported ground set only (see `base_len`).
+    pub fn ground_base(&self, x: f32, z: f32, y_ref: f32, step: f32) -> Option<f32> {
+        self.ground_in(x, z, y_ref, step, self.base_len)
+    }
+
+    fn ground_in(&self, x: f32, z: f32, y_ref: f32, step: f32, limit: usize) -> Option<f32> {
         let key = ((x / CELL).floor() as i32, (z / CELL).floor() as i32);
         let mut best: Option<f32> = None;
         for &i in self.grid.get(&key)? {
+            if i as usize >= limit {
+                continue;
+            }
             let [a, b, c] = self.tris[i as usize];
             let v0 = Vec2::new(c.x - a.x, c.z - a.z);
             let v1 = Vec2::new(b.x - a.x, b.z - a.z);
@@ -280,8 +296,8 @@ impl Arena {
         a.rex_spawn = Vec3::new(35.0, 6.5, -62.0);
         a.rex_yaw = std::f32::consts::PI; // Rex forward is +Z of its frame -> face -Z (south)
         if let Some(l) = &a.level {
-            if let Some(y) = l.ground(a.player_spawn.x, a.player_spawn.z, 50.0, 0.0) { a.player_spawn.y = y; }
-            if let Some(y) = l.ground(a.rex_spawn.x, a.rex_spawn.z, 50.0, 0.0) { a.rex_spawn.y = y; }
+            if let Some(y) = l.ground_base(a.player_spawn.x, a.player_spawn.z, 50.0, 0.0) { a.player_spawn.y = y; }
+            if let Some(y) = l.ground_base(a.rex_spawn.x, a.rex_spawn.z, 50.0, 0.0) { a.rex_spawn.y = y; }
         }
         a
     }
@@ -302,8 +318,8 @@ impl Arena {
         a.player_yaw = 0.0;
         a.rex_yaw = 0.0;
         if let Some(l) = &a.level {
-            if let Some(y) = l.ground(a.player_spawn.x, a.player_spawn.z, wy + 3.6, 0.0) { a.player_spawn.y = y; }
-            if let Some(y) = l.ground(a.rex_spawn.x, a.rex_spawn.z, wy + 3.6, 0.0) { a.rex_spawn.y = y; }
+            if let Some(y) = l.ground_base(a.player_spawn.x, a.player_spawn.z, wy + 3.6, 0.0) { a.player_spawn.y = y; }
+            if let Some(y) = l.ground_base(a.rex_spawn.x, a.rex_spawn.z, wy + 3.6, 0.0) { a.rex_spawn.y = y; }
         }
         a
     }

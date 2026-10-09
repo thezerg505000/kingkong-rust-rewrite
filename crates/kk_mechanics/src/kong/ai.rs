@@ -1135,6 +1135,24 @@ mod timeline {
         println!("end t={:.1} rex={:?} kong life {:.0}", f.time, f.rex.state(), f.kong.life);
     }
 
+    /// `KK_07D=1 cargo test -p kk-mechanics print_seed_coverage -- --ignored --nocapture`: which seeds show every
+    /// move the scene batches check (shoulder strike, Kong stunned, throw, fury, dodge, finisher)
+    #[test]
+    #[ignore]
+    fn print_seed_coverage() {
+        let prof = if std::env::var("KK_07D").is_ok() { RexProfile::ARENA_07D } else if std::env::var("KK_05C").is_ok() { RexProfile::MARSH_05C } else { RexProfile::KT_DEFAULT };
+        for seed in 1..=40 {
+            let (f, _b, log) = simulate_with(seed, 150.0, prof);
+            let has = |p: &dyn Fn(&FightEvent) -> bool| log.iter().any(|(_, e)| p(e));
+            let sh = has(&|e| matches!(e, FightEvent::Hit { attacker: Actor::Kong, anim: 0x16, .. }));
+            let st = has(&|e| matches!(e, FightEvent::Hit { attacker: Actor::Rex, .. })) || has(&|e| matches!(e, FightEvent::KongStunned { .. }));
+            let th = has(&|e| matches!(e, FightEvent::Throw { .. }));
+            let fu = has(&|e| matches!(e, FightEvent::FuryStart { .. }));
+            let fi = has(&|e| matches!(e, FightEvent::FinisherSuccess));
+            println!("seed {seed:2}: {:.1} s shoulder {sh} stunned {st} throw {th} fury {fu} finisher {fi}", f.time);
+        }
+    }
+
     #[test]
     #[ignore]
     fn print_seed_times() {

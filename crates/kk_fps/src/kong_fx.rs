@@ -165,6 +165,13 @@ fn send_shake(shake: &mut CameraShake, amp: f32, freq: f32, mult: f32, k: f32) {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// First sound definition of `names` the user's sound set has (the 07D / Kong banks only exist when
+/// the extractor built every `.smd` of Sound_Common.bf); the last name is the fallback.
+fn pick(defs: &crate::sfx::SoundDefs, names: &[&'static str]) -> &'static str {
+    names.iter().copied().find(|n| defs.0.contains_key(*n)).unwrap_or(names[names.len() - 1])
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn kong_effects(
     mut commands: Commands,
     mut ctl: ResMut<KongCtl>,
@@ -174,6 +181,8 @@ pub fn kong_effects(
     mut rumble: EventWriter<crate::fx::Rumble>,
     mut sfx: EventWriter<crate::sfx::PlaySfx>,
     cam: Query<&GlobalTransform, With<MainCam>>,
+    defs: Res<crate::sfx::SoundDefs>,
+    mut advantage_armed: Local<Option<bool>>,
 ) {
     let Some(fx) = fx else { return };
     let listener = cam.single().map(|g| g.translation()).unwrap_or(Vec3::ZERO);
@@ -246,17 +255,47 @@ pub fn kong_effects(
                 splash(&mut commands, &mut mats, &fx, rp, 3.0, true);
                 c.stats.flashes += 1;
                 c.stats.splashes += 1;
+                // Kong's bank (07D _PJ_Kong) slot 0x12 Kong_break_jaw, rex bank KTrex_jaw_break [C names, L moment]
+                sfx.write(crate::sfx::PlaySfx::at(pick(&defs, &["Kong_break_jaw", "Trex_growl"]), rp + Vec3::Y * 2.0));
+                sfx.write(crate::sfx::PlaySfx::at(pick(&defs, &["KTrex_jaw_break", "Trex_growl"]), rp + Vec3::Y * 2.0));
             }
-            // the rex's reaction sound slot 3 / 4 (`fn@0x00428060`) is a 07D bank entry we have not decoded;
-            // the 03E rex "hit" definition stands in [G]
-            FightEvent::RexPaf { .. } | FightEvent::RexGroundHit => {
-                sfx.write(crate::sfx::PlaySfx::at("Trex_take_shoot", rp + Vec3::Y * 3.0));
+            // sound slots of the KT rex's bank (07D J_PNJ_KTREX_2, resource cb 0xa346e0) [C]: 3 KTrex_paf_small,
+            // 4 KTrex_paf_big; the 03E rex hit sound when the user's sound set lacks them
+            FightEvent::RexPaf { sound, .. } => {
+                let want = if *sound == 3 { "KTrex_paf_small" } else { "KTrex_paf_big" };
+                sfx.write(crate::sfx::PlaySfx::at(pick(&defs, &[want, "Trex_take_shoot"]), rp + Vec3::Y * 3.0));
             }
-            FightEvent::KongStunned { .. } => {
+            FightEvent::RexGroundHit => {
+                sfx.write(crate::sfx::PlaySfx::at(pick(&defs, &["KTrex_paf_small", "Trex_take_shoot"]), rp + Vec3::Y * 1.5));
+            }
+            // KT_ETAT_charge: sound 6 = KTrex_attack [C]
+            FightEvent::RexAttack { kind: kk_mechanics::kong::fight::RexMove::Charge } => {
+                sfx.write(crate::sfx::PlaySfx::at(pick(&defs, &["KTrex_attack", "Trex_attack"]), rp + Vec3::Y * 3.0));
+            }
+            // Kong's bank (07D _PJ_Kong): 9 / 10 Kong_paf_big / Kong_paf_small [C names, L choice by strength]
+            FightEvent::KongStunned { strength, .. } => {
                 splash(&mut commands, &mut mats, &fx, kp, 1.6, false);
                 c.stats.splashes += 1;
+                let want = if *strength >= 2 { "Kong_paf_big" } else { "Kong_paf_small" };
+                sfx.write(crate::sfx::PlaySfx::at(pick(&defs, &[want]), kp + Vec3::Y * 4.0));
+            }
+            // the mash clip begins: Kong's sound 0xe Kong_grab_trex (k_ETAT_finish, end of 0xe6) [C]
+            FightEvent::Anim { actor: Actor::Kong, id: 0xe7, .. } => {
+                sfx.write(crate::sfx::PlaySfx::at(pick(&defs, &["Kong_grab_trex"]), kp + Vec3::Y * 4.0));
             }
             _ => {}
+        }
+    }
+    // k_ETAT_finish 0x15: Kong's sound 0x38 Kong_grab_advantage once the cursor passes 0.75, re-armed
+    // below 0.25 [C]
+    if let Some(f) = c.fight.kong.finisher.as_ref().filter(|f| f.won_t.is_none()) {
+        let u = f.mash.progress / FINISH_ANIM_LEN;
+        let armed = advantage_armed.get_or_insert(true);
+        if *armed && u > 0.75 {
+            *armed = false;
+            sfx.write(crate::sfx::PlaySfx::at(pick(&defs, &["Kong_grab_advantage"]), kp + Vec3::Y * 4.0));
+        } else if u < 0.25 {
+            *armed = true;
         }
     }
     // dodge / roll / charge dash: a spray trail behind Kong while he moves fast in a combat phase

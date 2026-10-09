@@ -64,12 +64,12 @@ impl FightArena {
         for j in 0..h {
             for i in 0..w {
                 let (x, z) = (x0 + (i as f32 + 0.5) * RES, z0 + (j as f32 + 0.5) * RES);
-                let Some(f) = level.ground(x, z, spec.yref + spec.above, 0.0) else { continue };
+                let Some(f) = level.ground_base(x, z, spec.yref + spec.above, 0.0) else { continue };
                 if f < spec.yref - spec.below {
                     continue;
                 }
                 floor[j * w + i] = f;
-                let top = level.ground(x, z, spec.yref + spec.above + 8.0, 0.0).unwrap_or(f);
+                let top = level.ground_base(x, z, spec.yref + spec.above + 8.0, 0.0).unwrap_or(f);
                 if top - f > 1.6 {
                     continue;
                 }
