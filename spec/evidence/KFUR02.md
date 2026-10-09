@@ -9,7 +9,7 @@ covered in fur, and his body had none while the arms did.
   `Input.RLI.a = 1.0 - Input.RLI.a; fScale = g_fFurNormalOffset * Input.RLI.a; Position += Normal * fScale;
   TexCoord0 += g_vFurTextureOffset`. The shell offset is scaled per vertex by **1 − alpha of the vertex's RLI
   colour**.
-* `g_fFurNormalOffset` per shell comes from `FUN_00a1c990` (len/100/layers, as already ported); the RLI is not in
+* `g_fFurNormalOffset` per shell comes from `fn@0x00a1c990` (len/100/layers, as already ported); the RLI is not in
   the GEO (Kong's GEOs carry no vertex colours) but in the GAO's visual: key field `rli` of `S_Kong_Weta_Def.gao`,
   `S_XE_KongBrasG/D.gao`, `S_Kong_Weta_Def_TeteHDef01.gao` (07D loader emulation, `recs07.pkl`).
 * Record format (RLI_FINDINGS, loader cb `0x95dd50`): `u32 size; "RLI\x80"; u32 count; u32 colour[count]`, one
