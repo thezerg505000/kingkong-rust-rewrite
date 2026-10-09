@@ -15,7 +15,7 @@ raytracing = ["bevy/bevy_solari"]
 # build time and nvngx_dlss.dll next to the exe at run time; see docs/REMASTER.md
 dlss = ["bevy/dlss"]
 # OpenGL ES backend: only for the headless software-GL test runs (WGPU_BACKEND=gl on llvmpipe)
-gles = ["dep:bevy_render", "bevy_render/gles"]
+gles = ["bevy_render/gles"]
 # Firewheel audio engine (bevy_seedling): the game's sounds, 3D/HRTF voices, reverb, occlusion
 audio = ["audio_engine", "bevy_seedling/cpal"]
 # the engine code without an output backend (compile checks on machines without ALSA headers)
@@ -28,7 +28,8 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 half = "2"
 bevy_seedling = { version = "0.8", optional = true, default-features = false, features = ["wav", "ogg", "rand", "hrtf", "effects"] }
-bevy_render = { version = "0.19.1", default-features = false, optional = true }
+# direct dependency: Bevy's render derive macros (ShaderType, AsBindGroup, ExtractComponent) expand to `bevy_render::` paths
+bevy_render = { version = "0.19.1", default-features = false }
 
 [dependencies.bevy]
 version = "0.19.1"
