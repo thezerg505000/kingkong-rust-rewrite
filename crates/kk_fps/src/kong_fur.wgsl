@@ -13,7 +13,7 @@
 }
 
 struct FurUniform {
-    // x: offset of this shell along the normal (m), y: alpha-test ref (i/N), z: shade (root darkening), w: unused
+    // x: offset of this shell along the normal (m), y: alpha-test ref (kong_fur::shell_alpha_ref), z: shade (root darkening), w: unused
     shell: vec4<f32>,
     // fur layer UV matrix rows (m0, m1), (m2, m3) and offset (m4, m5) - Jade layout u' = m0 u + m2 v + m4
     m: vec4<f32>,

@@ -14,6 +14,7 @@ use bevy::ecs::system::EntityCommands;
 use bevy::mesh::{Indices, VertexAttributeValues};
 use bevy::pbr::DefaultOpaqueRendererMethod;
 use bevy::prelude::*;
+use bevy::camera::visibility::RenderLayers;
 use bevy::render::render_resource::TextureUsages;
 use bevy::solari::prelude::{RaytracingMesh3d, SolariLighting, SolariPlugins};
 use std::collections::HashMap;
@@ -39,15 +40,25 @@ pub fn camera(c: &mut EntityCommands) {
 #[derive(Component)]
 struct RtDone;
 
-/// Give every static level mesh a ray-tracing copy.
+/// Give every static level mesh a ray-tracing copy. Left out (they flickered the ray-traced light): the
+/// first-person layer (guns, held spear, Jack's own effects), anything that follows the camera (cloud sky,
+/// sun disc), unlit or blended materials (sky, sprites, particles, rain) and other non-world layers.
 #[allow(clippy::type_complexity)]
 fn prepare_meshes(
     mut commands: Commands,
-    q: Query<(Entity, &Mesh3d), (With<MeshMaterial3d<StandardMaterial>>, Without<RtDone>, Without<bevy::mesh::skinning::SkinnedMesh>)>,
+    q: Query<(Entity, &Mesh3d, &MeshMaterial3d<StandardMaterial>, Option<&RenderLayers>, Has<crate::sky::CloudSky>, Has<crate::sky::SunDisc>), (Without<RtDone>, Without<bevy::mesh::skinning::SkinnedMesh>)>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mats: Res<Assets<StandardMaterial>>,
     mut cache: Local<HashMap<AssetId<Mesh>, Option<Handle<Mesh>>>>,
 ) {
-    for (e, m) in &q {
+    for (e, m, mat, layers, sky, disc) in &q {
+        let world_layer = layers.is_none_or(|l| l.intersects(&RenderLayers::layer(0)) && !l.intersects(&RenderLayers::layer(crate::world::VIEW_LAYER)));
+        let Some(material) = mats.get(&mat.0) else { continue }; // not loaded yet: try again later
+        let opaque = !material.unlit && matches!(material.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_));
+        if !world_layer || sky || disc || !opaque {
+            commands.entity(e).insert(RtDone);
+            continue;
+        }
         let id = m.0.id();
         let rt = match cache.get(&id) {
             Some(h) => h.clone(),

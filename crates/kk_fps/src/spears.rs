@@ -10,12 +10,15 @@
 //!
 //! Controls (PS2 layout in spec/GAMEPLAY_SPEC.md): E / pad South picks up, G / pad North (Triangle)
 //! drops, fire while aiming throws, fire without aiming stabs (reach 5 m, damage 1, every 0.4 s) [C].
-//! The arms have no recovered spear clips: the held spear is drawn on its own in the viewmodel [G].
+//! Held spears sit in Jack's right hand on the arms' WeaponSocket (`OBJ_LanceSmall` spear /
+//! `OBJ_LanceMed` bone javelin, both modelled in hand space) and the arms play the spear actions of the
+//! `_PJ_J` arms kit (hold, wind-up + release, stab: see `weapons::SpearPose`). Right mouse / aim winds
+//! up the throw without zooming; fire while wound up throws, fire otherwise stabs.
 
 use crate::anim::{GameState, Rigs};
 use crate::creatures::{Creature, CreatureRig, RaptorAi};
 use crate::player::{MainCam, Player, ViewModel};
-use crate::weapons::{Arsenal, RexDamage, RexHitbox};
+use crate::weapons::{Arsenal, RexDamage, RexHitbox, SpearPose};
 use crate::world::{Arena, VIEW_LAYER};
 use bevy::prelude::*;
 use bevy::camera::visibility::RenderLayers;
@@ -45,6 +48,9 @@ const SPEARS_PER_RACK: usize = 5;
 /// Javelin hit message flags (`Javelin_launch`: `Msg_BuildHit(.., 0x400400, ..)`) [L: Ghidra shows the
 /// immediate as `&DAT_00400400`].
 const SPEAR_HIT_FLAGS: u32 = 0x0040_0400;
+/// Hand-held models (kk_extract recipes, hand-socket space) [C geometry].
+const SPEAR_GLB: &str = "jack_fps_spear.glb";
+const BONE_GLB: &str = "jack_fps_bone_spear.glb";
 
 #[derive(Default, Clone)]
 struct Model {
@@ -54,6 +60,8 @@ struct Model {
 #[derive(Resource, Default)]
 pub struct SpearKit {
     ready: bool,
+    /// the bone javelin glb, loading
+    bone_gltf: Option<Handle<Gltf>>,
     spear: Model,
     bone: Model,
     spawned: bool,
@@ -71,6 +79,8 @@ pub struct JackSpear {
     stab_t: f32,
     view: Option<Entity>,
     view_kind: Option<SpearKind>,
+    /// the old free-floating viewmodel (no hand model extracted)
+    view_floating: bool,
 }
 
 /// A spear / bone in the world.
@@ -102,7 +112,54 @@ fn along(dir: Vec3) -> Quat {
     Quat::from_rotation_arc(Vec3::Y, dir.normalize_or(Vec3::Y))
 }
 
-fn build_models(rigs: &Rigs, gltfs: &Assets<Gltf>, gmeshes: &Assets<bevy::gltf::GltfMesh>, meshes: &mut Assets<Mesh>, mats: &mut Assets<StandardMaterial>, server: &AssetServer) -> (Model, Model) {
+/// The StandardMaterial of a glTF primitive (glTF materials load as GltfMaterial; the StandardMaterial
+/// lives under the "<label>/std" sub-asset).
+fn std_material(p: &bevy::gltf::GltfPrimitive, mats: &mut Assets<StandardMaterial>, server: &AssetServer) -> Handle<StandardMaterial> {
+    p.material
+        .as_ref()
+        .and_then(|h| h.path())
+        .and_then(|path| {
+            let label = path.label()?.to_string();
+            Some(server.load(path.clone().with_label(format!("{label}/std"))))
+        })
+        .unwrap_or_else(|| mats.add(StandardMaterial::from(Color::srgb(0.5, 0.4, 0.3))))
+}
+
+/// A long object's parts re-laid with its main axis (principal component of the vertices) along +Y,
+/// centred on the middle of its extent. Positions are Jade (Z-up) mesh space.
+fn axis_model(gm: &bevy::gltf::GltfMesh, meshes: &Assets<Mesh>, mats: &mut Assets<StandardMaterial>, server: &AssetServer) -> Model {
+    let mut pts: Vec<Vec3> = Vec::new();
+    for p in &gm.primitives {
+        if let Some(bevy::mesh::VertexAttributeValues::Float32x3(v)) = meshes.get(&p.mesh).and_then(|m| m.attribute(Mesh::ATTRIBUTE_POSITION)) {
+            pts.extend(v.iter().map(|q| Vec3::from(*q)));
+        }
+    }
+    if pts.len() < 3 {
+        return Model::default();
+    }
+    let mean = pts.iter().copied().sum::<Vec3>() / pts.len() as f32;
+    // power iteration on the covariance
+    let mut axis = Vec3::Z;
+    for _ in 0..24 {
+        let mut n = Vec3::ZERO;
+        for q in &pts {
+            let d = *q - mean;
+            n += d * d.dot(axis);
+        }
+        axis = n.normalize_or(Vec3::Z);
+    }
+    let (lo, hi) = pts.iter().fold((f32::MAX, f32::MIN), |(lo, hi), q| {
+        let s = (*q - mean).dot(axis);
+        (lo.min(s), hi.max(s))
+    });
+    let centre = mean + axis * (lo + hi) * 0.5;
+    let r = Quat::from_rotation_arc(axis, Vec3::Y);
+    let t = Transform { translation: r * -centre, rotation: r, scale: Vec3::ONE };
+    Model { parts: gm.primitives.iter().map(|p| (p.mesh.clone(), std_material(p, mats, server), t)).collect() }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_models(rigs: &Rigs, bone_gltf: Option<&Handle<Gltf>>, gltfs: &Assets<Gltf>, gmeshes: &Assets<bevy::gltf::GltfMesh>, meshes: &mut Assets<Mesh>, mats: &mut Assets<StandardMaterial>, server: &AssetServer) -> (Model, Model) {
     let mut spear = Model::default();
     // the level's own spear mesh (S_LanceBig01): positions are in the rack skeleton's Jade frame,
     // so the parts are recentred and turned Z-up -> Y-up
@@ -126,12 +183,7 @@ fn build_models(rigs: &Rigs, gltfs: &Assets<Gltf>, gmeshes: &Assets<bevy::gltf::
                 let r = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
                 let t = Transform { translation: r * -c, rotation: r, scale: Vec3::ONE };
                 for p in &gm.primitives {
-                    // glTF materials load as GltfMaterial; the StandardMaterial lives under the "<label>/std" sub-asset
-                    let std_mat: Option<Handle<StandardMaterial>> = p.material.as_ref().and_then(|h| h.path()).and_then(|path| {
-                        let label = path.label()?.to_string();
-                        Some(server.load(path.clone().with_label(format!("{label}/std"))))
-                    });
-                    let mat = std_mat.unwrap_or_else(|| mats.add(StandardMaterial::from(Color::srgb(0.5, 0.4, 0.3))));
+                    let mat = std_material(p, mats, server);
                     spear.parts.push((p.mesh.clone(), mat, t));
                 }
             }
@@ -146,18 +198,14 @@ fn build_models(rigs: &Rigs, gltfs: &Assets<Gltf>, gmeshes: &Assets<bevy::gltf::
         spear.parts.push((shaft, wood, Transform::default()));
         spear.parts.push((tip, stone, Transform::from_xyz(0.0, 1.22, 0.0)));
     }
-    // bone spear: a long bone (no recovered model for weapon 7 in the 03E data) [G]
-    let bone_mesh = meshes.add(Capsule3d::new(0.028, 0.95));
-    let knob = meshes.add(Sphere::new(0.05));
-    let ivory = mats.add(StandardMaterial { base_color: Color::srgb(0.56, 0.52, 0.44), perceptual_roughness: 0.85, ..default() });
-    let bone = Model {
-        parts: vec![
-            (bone_mesh, ivory.clone(), Transform::default()),
-            (knob.clone(), ivory.clone(), Transform::from_xyz(0.025, 0.5, 0.0).with_scale(Vec3::new(1.2, 0.8, 1.0))),
-            (knob.clone(), ivory.clone(), Transform::from_xyz(-0.025, 0.5, 0.0).with_scale(Vec3::new(1.2, 0.8, 1.0))),
-            (knob, ivory, Transform::from_xyz(0.0, -0.5, 0.0)),
-        ],
-    };
+    // bone javelin: OBJ_LanceMed (the bone texture 1f007960), laid along +Y like the level spear
+    let mut bone = bone_gltf.and_then(|h| gltfs.get(h)).and_then(|g| g.meshes.first()).and_then(|h| gmeshes.get(h)).map(|gm| axis_model(gm, meshes, mats, server)).unwrap_or_default();
+    if bone.parts.is_empty() {
+        warn!("{BONE_GLB} missing (re-run the asset extraction): bone javelins use a plain stand-in");
+        let bone_mesh = meshes.add(Capsule3d::new(0.028, 0.95));
+        let ivory = mats.add(StandardMaterial { base_color: Color::srgb(0.56, 0.52, 0.44), perceptual_roughness: 0.85, ..default() });
+        bone.parts.push((bone_mesh, ivory, Transform::default()));
+    }
     (spear, bone)
 }
 
@@ -204,7 +252,16 @@ fn setup(
         return;
     }
     if !kit.ready {
-        let (s, b) = build_models(&rigs, &gltfs, &gmeshes, &mut meshes, &mut mats, &assets);
+        if kit.bone_gltf.is_none() && crate::mods::resolve(BONE_GLB).exists() {
+            kit.bone_gltf = Some(assets.load(BONE_GLB));
+        }
+        if let Some(h) = kit.bone_gltf.as_ref() {
+            if !assets.is_loaded_with_dependencies(h.id()) && !matches!(assets.load_state(h.id()), bevy::asset::LoadState::Failed(_)) {
+                return;
+            }
+        }
+        let bone_h = kit.bone_gltf.clone();
+        let (s, b) = build_models(&rigs, bone_h.as_ref(), &gltfs, &gmeshes, &mut meshes, &mut mats, &assets);
         kit.spear = s;
         kit.bone = b;
         kit.ready = true;
@@ -276,6 +333,13 @@ fn input(
     let dt = time.delta_secs();
     jack.melee_cd = (jack.melee_cd - dt).max(0.0);
     jack.stab_t = (jack.stab_t - dt).max(0.0);
+    // arms spear actions run their clip once (durations of clips 56 / 5) [C]
+    arsenal.spear_pose = match arsenal.spear_pose {
+        SpearPose::Throw { t } if t + dt < THROW_CLIP_S => SpearPose::Throw { t: t + dt },
+        SpearPose::Stab { t } if t + dt < STAB_CLIP_S => SpearPose::Stab { t: t + dt },
+        SpearPose::Throw { .. } | SpearPose::Stab { .. } => SpearPose::Hold,
+        p => p,
+    };
     let Ok((p, jt)) = players.single() else { return };
     let Ok(cam) = cam.single() else { return };
     let t = kit.t;
@@ -367,6 +431,8 @@ fn input(
             s.launch(to_m(spawn), to_m(origin), to_m(fwd));
             let v = from_m(s.vel);
             spawn_spear(&mut commands, &mut kit, s, spawn, along(v), false);
+            // the release frame: action 0x5c lets go when its wind-up clip hands over to clip 56 [L]
+            arsenal.spear_pose = SpearPose::Throw { t: 0.0 };
             jack.slots.consume_after_throw();
             jack.held = None;
             kit.log.push((t, format!("throw {k:?} {:.1} m/s", v.length())));
@@ -375,6 +441,7 @@ fn input(
             // H_exec_test_ZDE_FIGHT: damage 1 every 0.4 s, reach 5, flag 0x10 (0x40 burning) [C]
             jack.melee_cd = sp::MELEE_COOLDOWN;
             jack.stab_t = 0.18;
+            arsenal.spear_pose = SpearPose::Stab { t: 0.0 };
             sfx.write(crate::sfx::PlaySfx::ui("Jack weapon whoosh"));
             let mut best: Option<(f32, Entity, bool)> = None;
             for (ce, c, rig, ai) in creatures.iter() {
@@ -405,8 +472,23 @@ fn input(
     if (fire || drop) && had_spear {
         arsenal.cooldown = arsenal.cooldown.max(0.35);
     }
-    arsenal.spear_held = jack.held.is_some();
+    // the arms finish the throw before the gun comes back up
+    let follow_through = matches!(arsenal.spear_pose, SpearPose::Throw { .. });
+    arsenal.spear_held = jack.held.is_some() || follow_through;
+    if jack.held.is_some() {
+        // right mouse / aim winds the throw up (no zoom while a spear is held: player.rs)
+        arsenal.spear_pose = match arsenal.spear_pose {
+            SpearPose::Hold if p.aiming => SpearPose::WindUp,
+            SpearPose::WindUp if !p.aiming => SpearPose::Hold,
+            q => q,
+        };
+    } else if !follow_through {
+        arsenal.spear_pose = SpearPose::Hold;
+    }
 }
+
+const THROW_CLIP_S: f32 = 0.53;
+const STAB_CLIP_S: f32 = 0.73;
 
 fn ray_sphere(o: Vec3, d: Vec3, c: Vec3, r: f32) -> Option<f32> {
     let oc = o - c;
@@ -642,13 +724,17 @@ fn settle(
     }
 }
 
-/// The held spear in front of the camera (arms hidden while it is held) [G pose].
+/// The held spear: the hand-space model on the arms' WeaponSocket (the arms play the spear clips,
+/// `weapons::drive_arms`). Without the extracted model (old asset folder) the level spear / stand-in
+/// floats in front of the camera with the arms hidden, as before.
 #[allow(clippy::too_many_arguments)]
 fn viewmodel(
     mut commands: Commands,
     mut jack: ResMut<JackSpear>,
     kit: Res<SpearKit>,
+    assets: Res<AssetServer>,
     vm: Query<Entity, With<ViewModel>>,
+    rig: Query<&crate::player::ArmsRig>,
     mut arms: Query<&mut Visibility, With<crate::player::ArmsScene>>,
     mut tfs: Query<&mut Transform>,
     players: Query<&Player>,
@@ -660,18 +746,43 @@ fn viewmodel(
             commands.entity(e).despawn();
         }
         jack.view_kind = want;
-        if let (Some(k), Ok(vm)) = (want, vm.single()) {
-            let e = commands.spawn((Name::new("HeldSpear"), Transform::default(), Visibility::default(), RenderLayers::layer(VIEW_LAYER))).id();
-            let m = if k == SpearKind::Bone { kit.bone.clone() } else { kit.spear.clone() };
-            spawn_model(&mut commands, e, &m, Some(VIEW_LAYER));
-            commands.entity(vm).add_child(e);
-            jack.view = Some(e);
+        jack.view_floating = false;
+        let mut hide_arms = false;
+        if let Some(k) = want {
+            let glb = if k == SpearKind::Bone { BONE_GLB } else { SPEAR_GLB };
+            match rig.single() {
+                Ok(r) if crate::mods::resolve(glb).exists() => {
+                    // same Z-up -> Y-up cancel as the guns: the socket lives in Jade space
+                    let e = commands
+                        .spawn((
+                            Name::new("HeldSpear"),
+                            WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(glb))),
+                            Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+                            Visibility::default(),
+                        ))
+                        .observe(on_held_ready)
+                        .id();
+                    commands.entity(r.socket).add_child(e);
+                    jack.view = Some(e);
+                }
+                _ => {
+                    if let Ok(vm) = vm.single() {
+                        let e = commands.spawn((Name::new("HeldSpear"), Transform::default(), Visibility::default(), RenderLayers::layer(VIEW_LAYER))).id();
+                        let m = if k == SpearKind::Bone { kit.bone.clone() } else { kit.spear.clone() };
+                        spawn_model(&mut commands, e, &m, Some(VIEW_LAYER));
+                        commands.entity(vm).add_child(e);
+                        jack.view = Some(e);
+                        jack.view_floating = true;
+                        hide_arms = true;
+                    }
+                }
+            }
         }
         for mut v in arms.iter_mut() {
-            *v = if want.is_some() { Visibility::Hidden } else { Visibility::Inherited };
+            *v = if hide_arms { Visibility::Hidden } else { Visibility::Inherited };
         }
     }
-    if let Some(e) = jack.view {
+    if let (Some(e), true) = (jack.view, jack.view_floating) {
         let aiming = players.single().map(|p| p.aiming).unwrap_or(false);
         let stab = (jack.stab_t / 0.18).clamp(0.0, 1.0);
         let thrust = (stab * std::f32::consts::PI).sin() * 0.45;
@@ -682,6 +793,19 @@ fn viewmodel(
             let k = (time.delta_secs() * 14.0).min(1.0);
             tf.translation = tf.translation.lerp(target.translation, k);
             tf.rotation = tf.rotation.slerp(target.rotation, k);
+        }
+    }
+}
+
+fn on_held_ready(trigger: On<bevy::world_serialization::WorldInstanceReady>, mut commands: Commands, children: Query<&Children>, meshes: Query<(), With<Mesh3d>>) {
+    for e in children.iter_descendants(trigger.entity) {
+        if meshes.contains(e) {
+            commands.entity(e).insert((
+                RenderLayers::layer(VIEW_LAYER),
+                bevy::light::NotShadowCaster,
+                bevy::light::NotShadowReceiver,
+                bevy::camera::visibility::NoFrustumCulling,
+            ));
         }
     }
 }

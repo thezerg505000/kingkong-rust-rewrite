@@ -37,6 +37,7 @@ enum Row {
     MotionBlur,
     Vignette,
     ChromaticAberration,
+    VolumetricFog,
     AudioEngine,
     Hrtf,
     Reverb,
@@ -64,6 +65,7 @@ fn rows(mods: &ModList) -> Vec<Row> {
         MotionBlur,
         Vignette,
         ChromaticAberration,
+    VolumetricFog,
         Header("AUDIO"),
         AudioEngine,
         Hrtf,
@@ -135,6 +137,7 @@ fn label(r: Row, g: &GraphicsSettings, a: &AudioSettings, m: &ModList, caps: &Gr
         MotionBlur => (s("Motion blur"), s(on(g.motion_blur))),
         Vignette => (s("Vignette"), s(on(g.vignette))),
         ChromaticAberration => (s("Chromatic aberration"), s(on(g.chromatic_aberration))),
+        VolumetricFog => (s("Volumetric fog + sun shafts"), s(on(g.volumetric_fog))),
         AudioEngine => (s("Audio engine"), format!("{:?}", a.engine)),
         Hrtf => (s("3D audio (HRTF)"), s(on(a.hrtf))),
         Reverb => (s("Environmental reverb"), s(on(a.reverb))),
@@ -195,6 +198,7 @@ fn change(r: Row, dir: i32, g: &mut GraphicsSettings, a: &mut AudioSettings, m: 
         MotionBlur => g.motion_blur = !g.motion_blur,
         Vignette => g.vignette = !g.vignette,
         ChromaticAberration => g.chromatic_aberration = !g.chromatic_aberration,
+        VolumetricFog => g.volumetric_fog = !g.volumetric_fog,
         AudioEngine => {
             use crate::audio_engine::AudioEngine as E;
             a.engine = cycle(&[E::Original, E::Remaster], a.engine, dir);
@@ -205,7 +209,7 @@ fn change(r: Row, dir: i32, g: &mut GraphicsSettings, a: &mut AudioSettings, m: 
         Volume => a.master = ((a.master * 10.0).round() / 10.0 + 0.1 * dir as f32).clamp(0.0, 1.0),
         Mod(i) => m.mods[i].enabled = !m.mods[i].enabled,
     }
-    if *g != before && matches!(r, Upscaler | Sharpness | AntiAliasing | AmbientOcclusion | GlobalIllumination | RayTracing | ContactShadows | Shadows | Tonemapper | Bloom | DepthOfField | MotionBlur | Vignette | ChromaticAberration) {
+    if *g != before && matches!(r, Upscaler | Sharpness | AntiAliasing | AmbientOcclusion | GlobalIllumination | RayTracing | ContactShadows | Shadows | Tonemapper | Bloom | DepthOfField | MotionBlur | Vignette | ChromaticAberration | VolumetricFog) {
         g.preset = crate::graphics::Preset::Custom;
     }
 }

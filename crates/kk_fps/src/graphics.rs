@@ -136,6 +136,8 @@ pub struct GraphicsSettings {
     pub motion_blur: bool,
     pub vignette: bool,
     pub chromatic_aberration: bool,
+    /// ray-marched fog volume over the level lit by the sun (shafts) instead of the original distance fog
+    pub volumetric_fog: bool,
 }
 
 impl Default for GraphicsSettings {
@@ -167,6 +169,7 @@ impl GraphicsSettings {
             motion_blur: false,
             vignette: false,
             chromatic_aberration: false,
+            volumetric_fog: false,
         }
     }
 
@@ -187,6 +190,7 @@ impl GraphicsSettings {
             motion_blur: false,
             vignette: true,
             chromatic_aberration: false,
+            volumetric_fog: true,
         }
     }
 
@@ -485,19 +489,20 @@ fn apply_camera(
 fn apply_lights(
     settings: Res<GraphicsSettings>,
     caps: Res<GraphicsCaps>,
-    mut lights: Query<&mut DirectionalLight>,
+    mut lights: Query<(&mut DirectionalLight, Has<bevy::light::VolumetricLight>)>,
     mut map: ResMut<DirectionalLightShadowMap>,
 ) {
-    if !settings.is_changed() && lights.iter().all(|l| l.contact_shadows_enabled == (settings.contact_shadows && caps.compute)) {
+    if !settings.is_changed() && lights.iter().all(|(l, _)| l.contact_shadows_enabled == (settings.contact_shadows && caps.compute)) {
         return;
     }
-    for mut l in &mut lights {
+    for (mut l, volumetric) in &mut lights {
         let want = settings.contact_shadows && caps.compute;
         if l.contact_shadows_enabled != want {
             l.contact_shadows_enabled = want;
         }
-        // Solari replaces shadow maps with ray-traced visibility
-        if caps.raytracing_active && l.shadow_maps_enabled {
+        // Solari replaces shadow maps with ray-traced visibility (the volumetric sun keeps its map: the fog's
+        // light shafts are cut by it)
+        if caps.raytracing_active && l.shadow_maps_enabled && !volumetric {
             l.shadow_maps_enabled = false;
         }
     }

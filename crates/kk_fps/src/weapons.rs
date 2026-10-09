@@ -46,9 +46,29 @@ pub struct Arsenal {
     pub recoil: f32,
     /// per shot: (rays fired, impacts on any surface or the rex, rays that hit nothing); G11 check
     pub ray_log: Vec<(u32, u32, u32)>,
-    /// spears.rs: a spear / bone is in Jack's hand (guns blocked, arms hidden)
+    /// spears.rs: a spear / bone is in Jack's hand (guns blocked, gun hidden)
     pub spear_held: bool,
+    /// spears.rs: what the arms do with the spear
+    pub spear_pose: SpearPose,
 }
+
+/// Arms actions while a spear / bone is held (arms action kit of `_PJ_J`): hold = action 0x2d / 0x37
+/// (weapon type 5) -> clip 31, throw = action 0x5c -> clips 55 (wind-up) + 56 (release), the
+/// `H_ETAT_IA_lance` throw action [C ids]; stab = action 0x5d -> clip 5 [L].
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub enum SpearPose {
+    #[default]
+    Hold,
+    /// right mouse / aim: wound up, arm back, held on the last frame of clip 55
+    WindUp,
+    Throw { t: f32 },
+    Stab { t: f32 },
+}
+
+pub const CLIP_SPEAR_HOLD: &str = "idle_c18__arms_031";
+pub const CLIP_SPEAR_WINDUP: &str = "move_c28__arms_055";
+pub const CLIP_SPEAR_THROW: &str = "move_c28_b__arms_056";
+pub const CLIP_SPEAR_STAB: &str = "action_c05__arms_005";
 
 pub const SWAP_TIME: f32 = 0.55; // [G] no swap clip mapped per weapon yet
 
@@ -71,6 +91,7 @@ impl Default for Arsenal {
             recoil: 0.0,
             ray_log: Vec::new(),
             spear_held: false,
+            spear_pose: SpearPose::Hold,
         }
     }
 }
@@ -91,8 +112,12 @@ impl Arsenal {
     }
     pub fn refill(&mut self) {
         let keep = self.index;
+        // the mounted gun entity survives the reset: forgetting it here left the old gun in the hands
+        // when the next one was mounted (the "two guns overlapping" bug after a respawn / F8)
+        let mounted = self.weapon_entity;
         *self = Arsenal::default();
         self.index = keep;
+        self.weapon_entity = mounted;
         self.wanted_weapon = Some(keep);
     }
 }
@@ -128,9 +153,10 @@ impl Plugin for WeaponsPlugin {
         app.init_resource::<Arsenal>()
             .init_resource::<RexHitbox>()
             .add_message::<RexDamage>()
+            .add_systems(Update, split_luger_toggle)
             .add_systems(
                 Update,
-                (weapon_input, mount_weapon, drive_arms)
+                (weapon_input, mount_weapon, drive_arms, drive_gun_parts, luger_toggle)
                     .chain()
                     .in_set(WeaponsSet)
                     .after(crate::player::PlayerSet)
@@ -391,31 +417,254 @@ fn weapon_input(
     let _ = &mut commands;
 }
 
+/// The gun (and its parts) currently in Jack's hands.
+#[derive(Component)]
+pub struct MountedWeapon;
+
+/// A mounted gun part (`WeaponDef::parts[i]` of weapon `w`), a child of the WeaponSocket.
+#[derive(Component)]
+pub struct GunPart {
+    pub w: usize,
+    pub i: usize,
+}
+
 /// Keep the right weapon mesh parented under the arms' WeaponSocket (B_Jaf_Anex01).
 fn mount_weapon(
     mut commands: Commands,
     mut arsenal: ResMut<Arsenal>,
     rigs: Res<Rigs>,
+    assets: Res<AssetServer>,
     arms: Query<&ArmsRig, With<ArmsScene>>,
+    mounted: Query<Entity, With<MountedWeapon>>,
 ) {
     let Some(w) = arsenal.wanted_weapon else { return };
     let Ok(rig) = arms.single() else { return };
+    // everything mounted before goes, not only the entity we remember
+    for e in &mounted {
+        commands.entity(e).despawn();
+    }
     if let Some(old) = arsenal.weapon_entity.take() {
-        commands.entity(old).despawn();
+        if let Ok(mut ec) = commands.get_entity(old) {
+            ec.despawn();
+        }
     }
     // The weapon glbs carry the same Z-up->Y-up root rotation; the socket already lives in
     // Jade space, so cancel it (rotate +90° about X).
     let e = commands
         .spawn((
             Name::new(WEAPONS[w].name),
+            MountedWeapon,
             WorldAssetRoot(rigs.weapon_scenes[w].clone()),
             Transform::from_rotation(Quat::from_rotation_x(FRAC_PI_2)),
+            Visibility::default(),
         ))
         .observe(on_weapon_ready)
         .id();
     commands.entity(rig.socket).add_child(e);
+    // magazine / pump / bolt / round: modelled in the same weapon space, so their rest transform is
+    // the identity under the socket (parts missing from an older asset folder are skipped)
+    for (i, part) in WEAPONS[w].parts.iter().enumerate() {
+        if !crate::mods::resolve(part.glb).exists() {
+            continue;
+        }
+        let holder = commands
+            .spawn((Name::new(part.glb), MountedWeapon, GunPart { w, i }, Transform::default(), Visibility::default()))
+            .id();
+        let scene = commands
+            .spawn((
+                WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(part.glb))),
+                Transform::from_rotation(Quat::from_rotation_x(FRAC_PI_2)),
+            ))
+            .observe(on_weapon_ready)
+            .id();
+        commands.entity(holder).add_child(scene);
+        commands.entity(rig.socket).add_child(holder);
+    }
     arsenal.weapon_entity = Some(e);
     arsenal.wanted_weapon = None;
+}
+
+/// Gun parts: identity (seated) by default; during the reload clip they follow their prop bone
+/// relative to the weapon bone, loose rounds only show while the clip carries them; the pump / bolt
+/// cycle after each shot [G]. The whole gun hides while a spear is in hand.
+fn drive_gun_parts(
+    arsenal: Res<Arsenal>,
+    arms: Query<&ArmsRig, With<ArmsScene>>,
+    gts: Query<&GlobalTransform>,
+    mut parts: Query<(&GunPart, &mut Transform, &mut Visibility)>,
+    mut guns: Query<&mut Visibility, (With<MountedWeapon>, Without<GunPart>)>,
+) {
+    let hide_all = arsenal.spear_held;
+    for mut v in &mut guns {
+        let want = if hide_all { Visibility::Hidden } else { Visibility::Inherited };
+        if *v != want {
+            *v = want;
+        }
+    }
+    let rig = arms.single().ok();
+    let bone = |k: usize| rig.and_then(|r| r.anex[k]).and_then(|e| gts.get(e).ok());
+    for (gp, mut tf, mut vis) in &mut parts {
+        let def = &WEAPONS[gp.w].parts[gp.i];
+        let mut t = Transform::IDENTITY;
+        let mut shown = !def.hidden_at_rest;
+        match arsenal.action {
+            // past the 0.12 s cross-fade the reload clip alone drives the prop bones
+            ArmsAction::Reload { t: rt, .. } if rt > 0.12 && gp.w == arsenal.index => {
+                if let (Some(k), Some(a1)) = (def.anex, bone(0)) {
+                    if let Some(ak) = bone(k as usize - 1) {
+                        let rel = a1.affine().inverse() * ak.affine();
+                        let rt = Transform::from_matrix(Mat4::from(rel));
+                        // a prop parked far from the gun is off screen: the clip's way of hiding it
+                        let near = rt.translation.length() < 0.6;
+                        shown = near || !def.hidden_at_rest;
+                        if near {
+                            t = rt;
+                        }
+                    }
+                }
+            }
+            ArmsAction::Fire { t: ft } if gp.w == arsenal.index => {
+                let k = ((ft - 0.1) / 0.3).clamp(0.0, 1.0);
+                let stroke = (k * std::f32::consts::PI).sin();
+                // Jade weapon space: the barrel points down -Y, the receiver is toward +Y
+                match def.motion {
+                    PartMotion::Pump => t.translation.y += 0.075 * stroke,
+                    PartMotion::Bolt => t.translation.y += 0.06 * stroke,
+                    PartMotion::None => {}
+                }
+            }
+            _ => {}
+        }
+        *tf = t;
+        let want = if shown && !hide_all { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+    }
+}
+
+/// Luger toggle (breech block + toggle links) as two separate pieces of the Luger mesh, so the toggle
+/// can stand open when the magazine is empty (the Luger's hold-open). Split from primitive 0 of the
+/// recovered GEO by position [G: the GEO has no separate toggle object].
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LugerToggle {
+    Front,
+    Rear,
+}
+
+const TOGGLE_REAR_PIVOT: Vec2 = Vec2::new(0.033, 0.096);
+const TOGGLE_JOINT: Vec2 = Vec2::new(-0.005, 0.096);
+const TOGGLE_FRONT: Vec2 = Vec2::new(-0.085, 0.09);
+const TOGGLE_OPEN_DEG: f32 = 55.0;
+
+/// (y, z) of a triangle centroid in the Luger's Jade mesh space -> which toggle piece it belongs to.
+fn toggle_piece(c: Vec3) -> Option<LugerToggle> {
+    if c.z > 0.084 && c.y > -0.075 {
+        Some(if c.y >= TOGGLE_JOINT.x { LugerToggle::Rear } else { LugerToggle::Front })
+    } else {
+        None
+    }
+}
+
+/// Toggle piece transforms (mesh space) for `open` in 0..1: the rear link turns up about the rear pivot,
+/// the front link follows the joint while its front end slides back along the bore.
+pub fn toggle_transforms(open: f32) -> (Transform, Transform) {
+    let th = (TOGGLE_OPEN_DEG * open.clamp(0.0, 1.0)).to_radians();
+    let l1 = (TOGGLE_JOINT - TOGGLE_REAR_PIVOT).length();
+    let j = TOGGLE_REAR_PIVOT + Vec2::new(-th.cos(), th.sin()) * l1;
+    let l2 = (TOGGLE_JOINT - TOGGLE_FRONT).length();
+    let dz = j.y - TOGGLE_FRONT.y;
+    let f = Vec2::new(j.x - (l2 * l2 - dz * dz).max(0.0).sqrt(), TOGGLE_FRONT.y);
+    let ang = |v: Vec2| v.y.atan2(v.x);
+    let rear_a = ang(j - TOGGLE_REAR_PIVOT) - ang(TOGGLE_JOINT - TOGGLE_REAR_PIVOT);
+    let front_a = ang(j - f) - ang(TOGGLE_JOINT - TOGGLE_FRONT);
+    let about = |a: f32, from: Vec2, to: Vec2| {
+        let r = Quat::from_rotation_x(a);
+        let from3 = Vec3::new(0.0, from.x, from.y);
+        let to3 = Vec3::new(0.0, to.x, to.y);
+        Transform { translation: to3 - r * from3, rotation: r, scale: Vec3::ONE }
+    };
+    (about(front_a, TOGGLE_FRONT, f), about(rear_a, TOGGLE_REAR_PIVOT, TOGGLE_REAR_PIVOT))
+}
+
+fn split_mesh(m: &Mesh, keep: impl Fn(Vec3) -> bool) -> Option<Mesh> {
+    use bevy::mesh::{Indices, VertexAttributeValues};
+    let Some(VertexAttributeValues::Float32x3(pos)) = m.attribute(Mesh::ATTRIBUTE_POSITION) else { return None };
+    let idx: Vec<u32> = match m.indices()? {
+        Indices::U16(v) => v.iter().map(|&i| i as u32).collect(),
+        Indices::U32(v) => v.clone(),
+    };
+    let out: Vec<u32> = idx
+        .chunks_exact(3)
+        .filter(|t| keep((Vec3::from(pos[t[0] as usize]) + Vec3::from(pos[t[1] as usize]) + Vec3::from(pos[t[2] as usize])) / 3.0))
+        .flatten()
+        .copied()
+        .collect();
+    let mut n = m.clone();
+    n.insert_indices(Indices::U32(out));
+    Some(n)
+}
+
+/// Once the Luger's scene is up: cut the toggle out of primitive 0 into two child meshes.
+fn split_luger_toggle(
+    mut commands: Commands,
+    arsenal: Res<Arsenal>,
+    new_meshes: Query<(Entity, &Mesh3d, &MeshMaterial3d<StandardMaterial>, &ChildOf), Added<Mesh3d>>,
+    parents: Query<&ChildOf>,
+    mounted: Query<(), (With<MountedWeapon>, Without<GunPart>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    if arsenal.index != 0 {
+        return;
+    }
+    for (e, m3, mat, _) in &new_meshes {
+        let is_prim0 = m3.0.path().and_then(|p| p.label().map(|l| l.ends_with("Primitive0"))).unwrap_or(false);
+        if !is_prim0 || !parents.iter_ancestors(e).any(|a| mounted.contains(a)) {
+            continue;
+        }
+        let Some(src) = meshes.get(&m3.0).cloned() else { continue };
+        let (Some(base), Some(front), Some(rear)) = (
+            split_mesh(&src, |c| toggle_piece(c).is_none()),
+            split_mesh(&src, |c| toggle_piece(c) == Some(LugerToggle::Front)),
+            split_mesh(&src, |c| toggle_piece(c) == Some(LugerToggle::Rear)),
+        ) else {
+            continue;
+        };
+        commands.entity(e).insert(Mesh3d(meshes.add(base)));
+        for (piece, mesh) in [(LugerToggle::Front, front), (LugerToggle::Rear, rear)] {
+            let c = commands
+                .spawn((
+                    Name::new(format!("Luger toggle {piece:?}")),
+                    piece,
+                    Mesh3d(meshes.add(mesh)),
+                    mat.clone(),
+                    Transform::default(),
+                    RenderLayers::layer(VIEW_LAYER),
+                    bevy::light::NotShadowCaster,
+                    bevy::light::NotShadowReceiver,
+                    bevy::camera::visibility::NoFrustumCulling,
+                ))
+                .id();
+            commands.entity(e).add_child(c);
+        }
+    }
+}
+
+/// Hold-open: the toggle stands open while the Luger's magazine is empty, and closes when a new
+/// magazine is seated (reload commit) [G: rule of the real pistol, no recovered code].
+fn luger_toggle(time: Res<Time>, arsenal: Res<Arsenal>, mut open: Local<f32>, mut q: Query<(&LugerToggle, &mut Transform)>) {
+    let empty = arsenal.mag[0] == 0 && !matches!(arsenal.action, ArmsAction::Reload { committed: true, .. });
+    let target = if empty { 1.0 } else { 0.0 };
+    // snaps open with the last shot, closes a little slower as the toggle runs forward
+    let rate = if target > *open { 30.0 } else { 12.0 };
+    *open += (target - *open) * (rate * time.delta_secs()).min(1.0);
+    let (front, rear) = toggle_transforms(*open);
+    for (piece, mut tf) in &mut q {
+        *tf = match piece {
+            LugerToggle::Front => front,
+            LugerToggle::Rear => rear,
+        };
+    }
 }
 
 fn on_weapon_ready(
@@ -462,11 +711,20 @@ fn drive_arms(
         anim::play(rig, &mut rp, &mut player, &mut tr, &name, 0.1, true, false);
         return;
     }
+    if arsenal.spear_held {
+        match arsenal.spear_pose {
+            SpearPose::Hold => anim::play(rig, &mut rp, &mut player, &mut tr, CLIP_SPEAR_HOLD, 0.2, true, false),
+            SpearPose::WindUp => anim::play(rig, &mut rp, &mut player, &mut tr, CLIP_SPEAR_WINDUP, 0.08, false, false),
+            SpearPose::Throw { t } => anim::play(rig, &mut rp, &mut player, &mut tr, CLIP_SPEAR_THROW, 0.05, false, t == 0.0),
+            SpearPose::Stab { t } => anim::play(rig, &mut rp, &mut player, &mut tr, CLIP_SPEAR_STAB, 0.05, false, t == 0.0),
+        };
+        return;
+    }
     let stance = if p.aiming { w.clip_aim } else { w.clip_idle };
     match arsenal.action {
-        // The only forward-pointing fire clips are aimed poses, so they play while aiming;
-        // hip fire keeps the hip pose and uses procedural recoil.
-        ArmsAction::Fire { t } if p.aiming && !w.clip_fire.is_empty() => {
+        // Most fire clips are aimed poses, so they play while aiming; hip fire keeps the hip pose and
+        // uses procedural recoil (the shotgun's fire clip is a hip pose and always plays).
+        ArmsAction::Fire { t } if (p.aiming || w.fire_hip) && !w.clip_fire.is_empty() => {
             anim::play(rig, &mut rp, &mut player, &mut tr, w.clip_fire, 0.04, false, t == 0.0);
         }
         ArmsAction::Reload { t, .. } => {

@@ -187,6 +187,193 @@
     }
    }
   },
+  "jack_fps_luger_mag.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x3fe3d8",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_luger_mag_mesh",
+   "note": "OBJ_LugerDef_Munition: Luger magazine (weapon space; follows B_Jaf_Anex03 in reloads)",
+   "binding_note": "material 8f00be48 -> diffuse 8f00be3d is a LINK texture (not decoded); normal 830029e1 / UVs share the Luger atlas, so the Luger textures are used",
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "830029df",
+      "idx": 36
+     },
+     "normal": {
+      "key": "830029e1",
+      "idx": 37
+     }
+    }
+   }
+  },
+  "jack_fps_tommygun_mag.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x3ee530",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_tommygun_mag_mesh",
+   "note": "OBJ_tommygun_munition: Thompson magazine (weapon space)",
+   "binding_note": "material 830013f9 textures 83001402 / 83001404",
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "83001402",
+      "idx": 21
+     },
+     "normal": {
+      "key": "83001404",
+      "idx": 22
+     }
+    }
+   }
+  },
+  "jack_fps_shotgun_pump.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x3eb958",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_shotgun_pump_mesh",
+   "note": "OBJ_shotgun_armement: shotgun pump fore-end (weapon space)",
+   "binding_note": "material 83002daa (the shotgun's own)",
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "83002db3",
+      "idx": 19
+     },
+     "normal": {
+      "key": "83002db5",
+      "idx": 20
+     }
+    }
+   }
+  },
+  "jack_fps_shotgun_shell.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x404dc4",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_shotgun_shell_mesh",
+   "note": "OBJ_shotgun_munition: shotgun shell (weapon space; follows B_Jaf_Anex03 in reloads)",
+   "binding_note": "material 8f00853e textures 96000727 / 56004ad6",
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "96000727",
+      "idx": 23
+     },
+     "normal": {
+      "key": "56004ad6",
+      "idx": 24
+     }
+    }
+   }
+  },
+  "jack_fps_sniperrifle_bolt.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x3d63a8",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_sniperrifle_bolt_mesh",
+   "note": "OBJ_sniperrifle_armement: rifle bolt (weapon space; follows B_Jaf_Anex02 in reloads)",
+   "binding_note": "material 83006f18 sub 0 (the rifle's own)",
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "83006f1f",
+      "idx": 45
+     },
+     "normal": {
+      "key": "83006f21",
+      "idx": 46
+     }
+    }
+   }
+  },
+  "jack_fps_sniperrifle_round.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x40137c",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_sniperrifle_round_mesh",
+   "note": "OBJ_sniperrifle_munition: rifle cartridge (weapon space; follows B_Jaf_Anex03 in reloads)",
+   "binding_note": "material 8f008546 textures 9600072c / 56004ad8",
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "9600072c",
+      "idx": 25
+     },
+     "normal": {
+      "key": "56004ad8",
+      "idx": 26
+     }
+    }
+   }
+  },
+  "jack_fps_bone_spear.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x35aa30",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_bone_spear_mesh",
+   "note": "OBJ_LanceMed: bone javelin (hand-socket space)",
+   "binding_note": "material 8f00b823 first texture set 1f007960 / 56004c27",
+   "textures": {
+    "*": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "1f007960",
+      "idx": 27
+     },
+     "normal": {
+      "key": "56004c27",
+      "idx": 28
+     }
+    }
+   }
+  },
+  "jack_fps_spear.glb": {
+   "kind": "static",
+   "stream": "ff0003eb",
+   "geo_off": "0x364e0c",
+   "bank": "ff8003eb",
+   "mesh_node": "jack_fps_spear_mesh",
+   "note": "OBJ_LanceSmall: spear (hand-socket space)",
+   "binding_note": "multi-material 8f00b4ff: 0 shaft 8f00b507 / 56004ac8, 1 point + feathers 8f00b50a / 56004ac0",
+   "textures": {
+    "0": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "8f00b507",
+      "idx": 39
+     },
+     "normal": {
+      "key": "56004ac8",
+      "idx": 40
+     }
+    },
+    "1": {
+     "world": "ff0003eb",
+     "diffuse": {
+      "key": "8f00b50a",
+      "idx": 41
+     },
+     "normal": {
+      "key": "56004ac0",
+      "idx": 49
+     }
+    }
+   }
+  },
   "kong/kong.glb": {
    "kind": "kong",
    "model": "kong",

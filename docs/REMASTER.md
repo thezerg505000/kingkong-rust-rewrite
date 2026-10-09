@@ -20,6 +20,10 @@ is a setting in the in-game menu (**F10**), saved to `kk_settings.json` next to 
 | Shadow quality | Low / Medium / High / Ultra | sun shadow map 1024–8192 |
 | Tonemapping | Original (TonyMcMapface) / AgX / ACES / Blender Filmic / Khronos PBR Neutral | |
 | Bloom, Depth of field, Motion blur, Vignette, Chromatic aberration | On / Off | |
+| Volumetric fog + sun shafts | On / Off | 03E: the original distance fog is replaced by a ray-marched fog volume over the level, the key light is re-aimed at the cloudy sun the god ray beams from and casts shafts through the fog (needs its shadow map). Ray tracing also uses that sun as Solari's light |
+
+Ray tracing leaves out of the Solari scene everything that follows the camera or is not opaque world geometry
+(guns, held spear, cloud sky, sun disc, sprites, particles): those flickered the ray-traced light.
 
 ### Why not RTX Remix
 

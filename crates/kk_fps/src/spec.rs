@@ -50,14 +50,43 @@ pub struct WeaponDef {
     pub spread_deg: f32,
     /// reload: rounds are transferred when the reload action reaches this frame [C Colt 25, Tommy 90; others G]
     pub reload_commit_frame: f32,
-    /// Arm clip labels (prefix before "__arms_NNN" in the glb). [L]
+    /// Arm clips, by full glb name (`<label>__arms_NNN`). The NNN come from the arms action kit of
+    /// `_PJ_J` (ff0003eb record 248, one key per action id) [C]: idle = action 0x28 + weapon type
+    /// (types 1 Colt, 2 Tommy, 3 Shotgun, 4 Sniper -> clips 27..30), short idle 0x32 + type,
+    /// reload = 0x72 + type (`H_exec_loading_weapon`) -> clips 66..69, fire 0x82 / 0x84 / 0x80.
+    /// The aimed poses are matched by which weapon props (B_Jaf_Anex02/03) the clip carries [L].
     pub clip_idle: &'static str,
     pub clip_aim: &'static str,
-    /// fire clip played while aiming ("" = none; hip fire uses procedural recoil)
+    /// fire clip ("" = none: procedural recoil only)
     pub clip_fire: &'static str,
+    /// the fire clip also plays from the hip (otherwise only while aiming: those clips are aimed poses)
+    pub fire_hip: bool,
     pub clip_reload: &'static str,
     /// view kick per shot, radians [G] (no recoil code recovered yet)
     pub kick: f32,
+    /// moving sub-objects of the gun (magazine, pump, bolt, round), each its own GEO in weapon space
+    pub parts: &'static [GunPartDef],
+}
+
+/// How a gun part moves outside the reload clip [G: no recovered code drives these].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PartMotion {
+    None,
+    /// slides back along the barrel after each shot (pump action)
+    Pump,
+    /// cycles back after each shot (bolt action)
+    Bolt,
+}
+
+/// A weapon sub-object: `OBJ_<weapon>_munition` / `_armement` [C geometry]. During the reload clip it
+/// follows the arms prop bone `B_Jaf_Anex0N` relative to the weapon bone Anex01 (the clips move
+/// Anex03 with the magazine / shell / cartridge and Anex02 with the bolt) [L].
+pub struct GunPartDef {
+    pub glb: &'static str,
+    pub anex: Option<u8>,
+    /// only shown while the reload clip carries it (a loose shell / cartridge)
+    pub hidden_at_rest: bool,
+    pub motion: PartMotion,
 }
 
 impl WeaponDef {
@@ -104,16 +133,15 @@ pub const WEAPONS: [WeaponDef; 4] = [
         glb: "jack_fps_luger.glb",
         reserve: 32,
         spread_deg: 0.0,
+        // magazine seated at 0.36 s of the reload clip = frame ~22, inside the recovered frame 25 [C]
         reload_commit_frame: 25.0,
-        // One-handed low-right pistol carry, matching the original's hip view of the Luger
-        // (reference screenshot "Jack aiming the Luger at a V-Rex"); aimed pose for ADS. [L]
-        clip_idle: "idle_c14",
-        clip_aim: "idle_short_c23",
-        clip_fire: "fire_c23",
-        // short left-hand reload keeps the pistol in frame; its 35 frames contain the
-        // recovered commit at frame 25 [L]
-        clip_reload: "reload_l_short_c36",
+        clip_idle: "idle_c15__arms_027",
+        clip_aim: "idle_short_c23__arms_037",
+        clip_fire: "fire_c23__arms_075",
+        fire_hip: false,
+        clip_reload: "move_c35__arms_066",
         kick: 0.012,
+        parts: &[GunPartDef { glb: "jack_fps_luger_mag.glb", anex: Some(3), hidden_at_rest: false, motion: PartMotion::None }],
     },
     WeaponDef {
         id: WeaponId::TommyGun,
@@ -121,12 +149,15 @@ pub const WEAPONS: [WeaponDef; 4] = [
         glb: "jack_fps_tommygun.glb",
         reserve: 150,
         spread_deg: 1.5,
+        // the clip puts the new magazine home at 1.5 s = frame 90, the recovered commit frame [C]
         reload_commit_frame: 90.0,
-        clip_idle: "idle_c14",
-        clip_aim: "idle_short_c25",
-        clip_fire: "",
-        clip_reload: "reload_l_c43",
+        clip_idle: "idle_c16__arms_028",
+        clip_aim: "idle_short_c24__arms_038",
+        clip_fire: "fire_c24__arms_077",
+        fire_hip: false,
+        clip_reload: "move_c15__arms_067",
         kick: 0.006,
+        parts: &[GunPartDef { glb: "jack_fps_tommygun_mag.glb", anex: Some(3), hidden_at_rest: false, motion: PartMotion::None }],
     },
     WeaponDef {
         id: WeaponId::Shotgun,
@@ -134,12 +165,20 @@ pub const WEAPONS: [WeaponDef; 4] = [
         glb: "jack_fps_shotgun.glb",
         reserve: 20,
         spread_deg: 10.0,
-        reload_commit_frame: 20.0,
-        clip_idle: "idle_c16",
-        clip_aim: "idle_short_c24",
-        clip_fire: "fire_c24",
-        clip_reload: "reload_l_short_c36",
+        // one shell per 0.58 s cycle; the shell reaches the loading port at ~0.29 s [L]
+        reload_commit_frame: 17.0,
+        clip_idle: "idle_c17__arms_029",
+        // no aimed shotgun pose in the arms kit: the short idle of the same family [L]
+        clip_aim: "idle_short_c21__arms_035",
+        // action 0x80/0x85 (left hand works the fore-end) [C id, L meaning]
+        clip_fire: "reload_l_short_c40__arms_074",
+        fire_hip: true,
+        clip_reload: "reload_l_short_c36__arms_068",
         kick: 0.03,
+        parts: &[
+            GunPartDef { glb: "jack_fps_shotgun_pump.glb", anex: None, hidden_at_rest: false, motion: PartMotion::Pump },
+            GunPartDef { glb: "jack_fps_shotgun_shell.glb", anex: Some(3), hidden_at_rest: true, motion: PartMotion::None },
+        ],
     },
     WeaponDef {
         id: WeaponId::SniperRifle,
@@ -147,15 +186,18 @@ pub const WEAPONS: [WeaponDef; 4] = [
         glb: "jack_fps_sniperrifle.glb",
         reserve: 20,
         spread_deg: 0.0,
-        reload_commit_frame: 20.0,
-        clip_idle: "idle_c17",
-        clip_aim: "idle_short_c25",
+        // the cartridge is pushed down into the action at ~0.93 s [L]
+        reload_commit_frame: 56.0,
+        clip_idle: "idle_c03_b__arms_030",
+        clip_aim: "idle_c26__arms_040",
         clip_fire: "",
-        // The sniper transfers min(clip - mag, reserve) in ONE cycle (G03: only the shotgun is
-        // limited to one round per cycle); the short left-hand clip shows the rifle diagonal
-        // with the hand at the bolt [L]
-        clip_reload: "reload_l_short_c40",
+        fire_hip: false,
+        clip_reload: "reload_c37__arms_069",
         kick: 0.02,
+        parts: &[
+            GunPartDef { glb: "jack_fps_sniperrifle_bolt.glb", anex: Some(2), hidden_at_rest: false, motion: PartMotion::Bolt },
+            GunPartDef { glb: "jack_fps_sniperrifle_round.glb", anex: Some(3), hidden_at_rest: true, motion: PartMotion::None },
+        ],
     },
 ];
 

@@ -395,7 +395,7 @@ fn scope_view(
     let zoomed = match cam.single() {
         Ok(Projection::Perspective(pp)) => {
             let h = 2.0 * ((pp.fov * 0.5).tan() / 0.75).atan();
-            arsenal.current().id == WeaponId::SniperRifle && p.aiming && h < FOV_SNIPER_AIM + 0.12
+            arsenal.current().id == WeaponId::SniperRifle && p.aiming && !arsenal.spear_held && h < FOV_SNIPER_AIM + 0.12
         }
         _ => false,
     };

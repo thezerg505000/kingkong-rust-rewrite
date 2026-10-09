@@ -92,6 +92,8 @@ pub struct ArmsScene;
 pub struct ArmsRig {
     pub cam_bone: Entity,
     pub socket: Entity,
+    /// B_Jaf_Anex01..03: the weapon bone and the two prop bones the clips move magazines / bolts with
+    pub anex: [Option<Entity>; 3],
 }
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -242,11 +244,15 @@ fn on_arms_ready(
     let root = trigger.entity;
     let mut cam_bone = None;
     let mut socket = None;
+    let mut anex = [None; 3];
     for e in children.iter_descendants(root) {
         if let Ok(n) = names.get(e) {
             match n.as_str() {
                 "B_Jaf_Camera" => cam_bone = Some(e),
                 "WeaponSocket" => socket = Some(e),
+                "B_Jaf_Anex01" => anex[0] = Some(e),
+                "B_Jaf_Anex02" => anex[1] = Some(e),
+                "B_Jaf_Anex03" => anex[2] = Some(e),
                 _ => {}
             }
         }
@@ -264,7 +270,7 @@ fn on_arms_ready(
     match (cam_bone, socket, player) {
         (Some(cam_bone), Some(socket), Some(player)) => {
             commands.entity(root).insert((
-                ArmsRig { cam_bone, socket },
+                ArmsRig { cam_bone, socket, anex },
                 crate::anim::RigPlayer {
                     player,
                     current: String::new(),
@@ -308,7 +314,8 @@ fn look(
         .map(|w| w.grab_mode != CursorGrabMode::None)
         .unwrap_or(false);
     if p.alive() {
-        let mode = jk::LookMode { aim: p.aiming, run: p.run, ..Default::default() };
+        // a spear wind-up is not an aimed view: no zoom, normal look speed
+        let mode = jk::LookMode { aim: p.aiming && !weapons.spear_held, run: p.run, ..Default::default() };
         let (fx, fy, _) = jk::look_factors(mode);
         if grabbed {
             // Mouse keeps the same normal/aim ratio as the stick factors.
@@ -347,7 +354,7 @@ fn look(
     let bob = (p.bob_phase).sin().abs() * 0.04 * p.moving;
     ctf.translation = Vec3::new(0.0, p.eye + bob, 0.0);
     // FOV / ADS: target 1.2 / 0.6 / sniper 0.3, smoothed with k = 5*dt (CM_Cam) [C]
-    let target = jk::fov_target(p.aiming, false, weapons.current().id as i32, None);
+    let target = jk::fov_target(p.aiming && !weapons.spear_held, false, weapons.current().id as i32, None);
     if let Projection::Perspective(pp) = &mut *proj {
         let cur_h = 2.0 * ((pp.fov * 0.5).tan() / 0.75).atan();
         pp.fov = vertical_fov(jk::smooth_fov(cur_h, target, dt));

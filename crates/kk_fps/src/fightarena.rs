@@ -62,9 +62,10 @@ pub struct FightArena {
 }
 
 const RES: f32 = 1.0;
-/// Kong (and the rex) climb up to 0.95 m per metre (about 43 degrees) and step down 2.2 m per metre [G].
+/// Kong (and the rex) climb up to 0.95 m per metre (about 43 degrees) and step down 1.2 m per metre [G]
+/// (2.2 let them walk down the cliffs at the map's edge and off the playable ground).
 pub const STEP_UP: f32 = 0.95;
-pub const STEP_DOWN: f32 = 2.2;
+pub const STEP_DOWN: f32 = 1.2;
 /// a walkable cell needs this much free height above its floor (Kong's body band) [G]
 const HEADROOM: f32 = 4.0;
 
@@ -196,7 +197,8 @@ impl FightArena {
                 queue.push_back(c);
             }
         }
-        let (ylo, yhi) = (spec.yref - 8.0, spec.yref + 14.0);
+        // at most 3.5 m below the fight floor: deeper is the outside of the map [G]
+        let (ylo, yhi) = (spec.yref - 3.5, spec.yref + 14.0);
         while let Some(c) = queue.pop_front() {
             let (i, j) = ((c % w) as i32, (c / w) as i32);
             let f0 = floor[c];

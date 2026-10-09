@@ -464,11 +464,18 @@ fn resolve_id(id: u32) -> u32 {
 
 /// Ground height under (x, z): the highest ground not more than 1.2 m above `fallback` (the height we
 /// stood at), so Kong never climbs onto the cliff ledges around the field; `fallback` where there is none.
-fn ground_y(arena: &Arena, _center: Vec3, x: f32, z: f32, fallback: f32) -> f32 {
+/// Never more than 1.5 m below `fallback` in one call, nor below the fight arena's walk-grid floor: the
+/// fighters cannot drop off a ledge or the edge of the map [G].
+fn ground_y(arena: &Arena, fa: Option<&crate::fightarena::FightArena>, x: f32, z: f32, fallback: f32) -> f32 {
     match &arena.level {
         Some(l) => {
             // the full ground set (level mesh floors, stairs and ramps included where loaded): Kong climbs slopes
-            let g = l.ground(x, z, fallback, crate::fightarena::STEP_UP + 0.3).unwrap_or(fallback);
+            let mut g = l.ground(x, z, fallback, crate::fightarena::STEP_UP + 0.3).unwrap_or(fallback);
+            let mut lo = fallback - 1.5;
+            if let Some(f) = fa.and_then(|fa| fa.floor_at(x, z)) {
+                lo = lo.max(f - 0.6);
+            }
+            g = g.max(lo);
             // the swamp: the fighters wade, never deeper than about knee height under the surface (the pools'
             // render floors drop away under the water planes) [G]
             if crate::scene::swamp() { g.max(crate::swamp::water_y() - 0.9) } else { g }
@@ -486,7 +493,7 @@ pub fn open_ground(arena: &Arena, c: &KongCtl, x: f32, z: f32) -> bool {
 }
 
 pub fn ground_y_pub(arena: &Arena, c: &KongCtl, x: f32, z: f32, fallback: f32) -> f32 {
-    ground_y(arena, c.center, x, z, fallback)
+    ground_y(arena, c.farena.as_ref(), x, z, fallback)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -925,7 +932,7 @@ fn kong_fight(
             _ => (x, z),
         };
         if let Ok((mut p, mut tf)) = jack.single_mut() {
-            let y = ground_y(&arena, c.center, x, z, c.center.y);
+            let y = ground_y(&arena, c.farena.as_ref(), x, z, c.center.y);
             tf.translation = Vec3::new(x, y, z);
             let d = c.center - tf.translation;
             p.yaw = (-d.x).atan2(-d.z);
@@ -1133,7 +1140,7 @@ fn apply_kong(
     // transform
     let kp = c.fight.kong.pos;
     let w = c.world(kp, 0.0);
-    let ty = ground_y(&arena, c.center, w.x, w.z, c.kong_y);
+    let ty = ground_y(&arena, c.farena.as_ref(), w.x, w.z, c.kong_y);
     c.kong_y += (ty - c.kong_y) * (12.0 * dt).min(1.0);
     let target = yaw_of(c.fight.kong.facing);
     c.kong_yaw = turn_toward(c.kong_yaw, target, 16.0 * dt);
@@ -1281,7 +1288,7 @@ fn apply_rex(
     // position and facing
     let p = c.fight.rex.pos;
     let w = c.world(p, 0.0);
-    let ty = ground_y(&arena, c.center, w.x, w.z, c.rex_y);
+    let ty = ground_y(&arena, c.farena.as_ref(), w.x, w.z, c.rex_y);
     c.rex_y += (ty - c.rex_y) * (12.0 * dt).min(1.0);
     let target = yaw_of(c.fight.rex.facing);
     c.rex_yaw = turn_toward(c.rex_yaw, target, 10.0 * dt);
@@ -1529,7 +1536,7 @@ fn jack_watch(ctl: Res<KongCtl>, arena: Res<Arena>, time: Res<Time>, mut players
         let step = flat.normalize() * 6.0 * time.delta_secs();
         let (nx, nz) = (tf.translation.x + step.x, tf.translation.z + step.y);
         if open_ground(&arena, &ctl, nx, nz) {
-            let y = ground_y(&arena, ctl.center, nx, nz, tf.translation.y);
+            let y = ground_y(&arena, ctl.farena.as_ref(), nx, nz, tf.translation.y);
             tf.translation = Vec3::new(nx, y, nz);
         }
     }

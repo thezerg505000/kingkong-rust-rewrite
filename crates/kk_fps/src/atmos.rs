@@ -54,13 +54,34 @@ const MOON_SPOTS: [(&str, [f32; 3], [f32; 3], f32, f32, f32); 3] = [
 
 #[derive(Component)]
 pub struct MistVolume;
+/// The level's key directional light (the "Moon"): re-aimed at the cloudy sun when the remaster lighting
+/// (volumetric fog or ray tracing) is on.
+#[derive(Component)]
+pub struct KeyLight;
+/// Fog volume over the whole level: the volumetric replacement of the original distance fog.
+#[derive(Component)]
+pub struct LevelFog;
+
+/// Key light along the original's direction (Arene_T_Rex03 spot axis) and its recovered colour.
+const KEY_DIR: Vec3 = Vec3::new(0.328, -0.608, 0.723);
+const KEY_LUX: f32 = 950.0;
+/// The sun behind the clouds (`sky::sun_dir`, the gap the god ray beams from): warm white, brighter than
+/// the flat overcast key, casting the fog's light shafts / the ray-traced shadows [G values].
+const SUN_RGB: [u8; 3] = [255, 243, 222];
+const SUN_LUX: f32 = 1800.0;
+/// Level fog volume: covers 03E's courtyard, passages and the cliffs around them; extinction per metre
+/// = density * (absorption + scattering), ~0.011 /m keeps about the original's haze at 50 m
+/// (exp-squared 0.013) [G].
+const LEVEL_FOG_CENTRE: Vec3 = Vec3::new(40.0, 25.0, -78.0);
+const LEVEL_FOG_SIZE: Vec3 = Vec3::new(420.0, 110.0, 420.0);
+const LEVEL_FOG_DENSITY: f32 = 0.011;
 
 pub struct AtmosPlugin;
 
 impl Plugin for AtmosPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(GameState::Playing), spawn_atmos)
-            .add_systems(Update, (camera_fog, scroll_mist).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (camera_fog, apply_fog_mode, scroll_mist).chain().run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -144,13 +165,14 @@ fn spawn_atmos(mut commands: Commands, arena: Res<Arena>, mut images: ResMut<Ass
     *ambient = GlobalAmbientLight { color: Color::srgb(0.95, 0.92, 0.82), brightness: 220.0, ..default() };
 
     // Moon: the main key light, along Arene_T_Rex03's -Y (high spot aimed into the arena)
-    let dir = -Vec3::new(-0.328, 0.608, -0.723);
+    let dir = KEY_DIR;
     let mut moon = commands.spawn((
         Name::new("Moon"),
+        KeyLight,
         // key light neutral: the reference shots are overcast daylight; the moon colour stays on
         // the level's own spot lights [G]
         // colour of 03E's only level-local directional light, record 08001b3e: RGB(169,186,184) [C]
-        DirectionalLight { illuminance: 950.0, shadow_maps_enabled: false, color: Color::srgb_u8(169, 186, 184), ..default() },
+        DirectionalLight { illuminance: KEY_LUX, shadow_maps_enabled: false, color: Color::srgb_u8(169, 186, 184), ..default() },
         Transform::default().looking_to(dir, Vec3::Y),
         RenderLayers::layer(0),
         bevy::light::CascadeShadowConfigBuilder { num_cascades: 2, maximum_distance: 70.0, ..default() }.build(),
@@ -217,6 +239,103 @@ fn spawn_atmos(mut commands: Commands, arena: Res<Arena>, mut images: ResMut<Ass
             },
             Transform::from_xyz(35.0, 11.0, -78.0).with_scale(Vec3::new(70.0, 22.0, 90.0)),
         ));
+        // the level-wide fog of the volumetric mode (shown by apply_fog_mode); a faint large-scale noise
+        // keeps it from reading as a flat wall
+        let tex = images.add(noise3d(32, 11));
+        commands.spawn((
+            Name::new("LevelFog"),
+            LevelFog,
+            FogVolume {
+                fog_color: fog_color(),
+                density_factor: LEVEL_FOG_DENSITY,
+                density_texture: Some(tex),
+                absorption: 0.25,
+                scattering: 0.75,
+                scattering_asymmetry: 0.55,
+                light_tint: Color::srgb_u8(SUN_RGB[0], SUN_RGB[1], SUN_RGB[2]),
+                light_intensity: 1.0,
+                ..default()
+            },
+            Transform::from_translation(LEVEL_FOG_CENTRE).with_scale(LEVEL_FOG_SIZE),
+            Visibility::Hidden,
+        ));
+    }
+}
+
+/// The original fog: Jade linear fog (near 1, far 105) [C]; the master frame shows a clear near field and
+/// fast far wash-out, matched with exponential-squared density 0.013 [G].
+fn original_fog() -> DistanceFog {
+    DistanceFog { color: fog_color(), falloff: FogFalloff::ExponentialSquared { density: 0.013 }, ..default() }
+}
+
+/// Volumetric fog setting: distance fog off, the level fog volume on, the key light re-aimed at the
+/// cloudy sun and made volumetric (shafts through the fog). Ray tracing also re-aims the key light so the
+/// ray-traced sun comes from where the god ray beams. Otherwise the original fog and key light.
+#[allow(clippy::too_many_arguments)]
+fn apply_fog_mode(
+    mut commands: Commands,
+    arena: Res<Arena>,
+    settings: Res<crate::graphics::GraphicsSettings>,
+    caps: Res<crate::graphics::GraphicsCaps>,
+    tunables: Res<crate::mods::Tunables>,
+    cams: Query<(Entity, Has<DistanceFog>, Has<VolumetricFog>), With<MainCam>>,
+    new_cams: Query<(), Added<MainCam>>,
+    mut volumes: Query<(&mut Visibility, &mut FogVolume), With<LevelFog>>,
+    mut keys: Query<(Entity, &mut DirectionalLight, &mut Transform), With<KeyLight>>,
+    mut last: Local<Option<(bool, bool)>>,
+) {
+    if !level(&arena) {
+        return;
+    }
+    let vol = settings.volumetric_fog && shafts_enabled() && caps.compute;
+    let sunlit = vol || caps.raytracing_active;
+    if *last == Some((vol, sunlit)) && new_cams.is_empty() {
+        return;
+    }
+    if keys.is_empty() {
+        return; // spawn_atmos has not run yet
+    }
+    *last = Some((vol, sunlit));
+    let fog_scale = tunables.get("fog_density_scale", 1.0);
+    for (e, has_fog, has_vol) in &cams {
+        let mut c = commands.entity(e);
+        if vol {
+            if has_fog {
+                c.remove::<DistanceFog>();
+            }
+            if !has_vol {
+                c.insert(VolumetricFog { ambient_color: Color::srgb(0.80, 0.84, 0.78), ambient_intensity: 0.05, jitter: 0.0, step_count: 48 });
+            }
+        } else {
+            // (replaces the camera's spawn-time haze; mods scale it through Added<DistanceFog>)
+            let _ = has_fog;
+            c.insert(original_fog());
+        }
+    }
+    for (mut v, mut f) in &mut volumes {
+        *v = if vol { Visibility::Inherited } else { Visibility::Hidden };
+        f.density_factor = LEVEL_FOG_DENSITY * fog_scale;
+    }
+    for (e, mut l, mut tf) in &mut keys {
+        if sunlit {
+            let d = -crate::sky::sun_dir();
+            *tf = Transform::default().looking_to(d, Vec3::Y);
+            l.color = Color::srgb_u8(SUN_RGB[0], SUN_RGB[1], SUN_RGB[2]);
+            l.illuminance = SUN_LUX * tunables.get("sun_intensity_scale", 1.0);
+            // the fog's shafts need the shadow map; under ray tracing alone Solari traces the shadows
+            l.shadow_maps_enabled = vol;
+            if vol {
+                commands.entity(e).insert(bevy::light::VolumetricLight);
+            } else {
+                commands.entity(e).remove::<bevy::light::VolumetricLight>();
+            }
+        } else {
+            *tf = Transform::default().looking_to(KEY_DIR, Vec3::Y);
+            l.color = Color::srgb_u8(169, 186, 184);
+            l.illuminance = KEY_LUX * tunables.get("sun_intensity_scale", 1.0);
+            l.shadow_maps_enabled = false;
+            commands.entity(e).remove::<bevy::light::VolumetricLight>();
+        }
     }
 }
 
@@ -232,13 +351,7 @@ fn camera_fog(mut commands: Commands, arena: Res<Arena>, cams: Query<Entity, Add
             global: bevy::render::view::ColorGradingGlobal { temperature: 0.01, post_saturation: 1.0, ..default() },
             ..default()
         });
-        c.insert(DistanceFog {
-            color: fog_color(),
-            // Jade uses linear fog (near 1, far 105) [C]; the master frame shows a clear near field
-            // and fast far wash-out, matched with exponential-squared density 0.02 [G]
-            falloff: FogFalloff::ExponentialSquared { density: 0.013 },
-            ..default()
-        });
+        // the fog itself (original distance fog or the volumetric level fog) is set by apply_fog_mode
         if crate::godray::enabled() {
             c.insert((crate::godray::GodRay::default(), Msaa::Off));
 

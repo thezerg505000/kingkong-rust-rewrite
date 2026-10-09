@@ -1,3 +1,28 @@
+# UPDATE 2026-10-09 (session 5): Jack's weapons from the arms action kit, gun parts, spears, barriers, lighting
+
+- **Arms action kit decoded** (`spec/evidence/J15.md`): `_PJ_J`'s FPS arms kit (ff0003eb record 248) is one key per
+  action id -> action records -> the 101 arms clips. Idle 0x28+type, short idle 0x32+type, reload 0x72+type
+  (types 1 Colt, 2 Tommy, 3 Shotgun, 4 Sniper) -> clips 27..30 / 33..36 / 66..69. Both recovered reload commit
+  frames land where the decoded clips seat the magazine (Colt frame 25 at 60 Hz, Tommy 90). `spec.rs` uses the
+  clips by full name; the Thompson is two-handed now (it played the empty-hands idle 26 before).
+- **Gun parts** (`kk_extract` manifest, 8 new static recipes): Luger / Thompson magazines, shotgun pump and shell,
+  rifle bolt and cartridge (`OBJ_*_munition` / `_armement` GEOs, modelled in weapon space), `OBJ_LanceSmall`
+  spear and `OBJ_LanceMed` bone javelin (hand space). During reloads a part follows B_Jaf_Anex03 (magazine /
+  shell / cartridge) or Anex02 (bolt) relative to Anex01 [L]; pump / bolt cycle after a shot [G]. The launcher
+  extracts the new files on the next start (`is_complete`). Luger hold-open: the toggle is cut out of primitive
+  0 at load and stands open while the magazine is empty [G].
+- **Two guns at once** fixed: `Arsenal::refill` (respawn / F8) forgot the mounted gun entity, the next mount added a
+  second one. Mounted guns carry `MountedWeapon` and all of them are despawned on a mount.
+- **Spears**: held spear / bone on the WeaponSocket, arms play hold (clip 31), wind-up (55) on right mouse with no
+  zoom, release (56), stab (5) [C action ids 0x2d/0x5c/0x5d, L for the stab]. World bones use the bone javelin.
+- **Barriers**: Jack refuses drops over 2 m and anything below the scene's `min_floor`; the Jack-level V-Rex walks
+  with `Arena::creature_step`; Kong's walk grid steps down 1.2 m/m and at most 3.5 m below the fight floor, and
+  `ground_y` never sinks below the walk-grid floor.
+- **Lighting**: thunder flash is a smooth strike + re-strike envelope; RT scene excludes camera-following and
+  non-opaque meshes; new setting "Volumetric fog + sun shafts" (atmos.rs `apply_fog_mode`). Kong fur alpha ref
+  0.75 f^1.4 instead of f (denser coat).
+- Nothing of this session was run (the user tests on Windows); `cargo check` (default-less and `raytracing`) passes.
+
 # UPDATE 2026-10-09 (session 4): Kong fixes, Bevy 0.19 remaster options, audio engine, mods
 
 - **Kong fur** (`spec/evidence/KFUR02.md`): fur length per vertex = 1 − RLI alpha (PC `vsfur.hlsl`); the RLI records

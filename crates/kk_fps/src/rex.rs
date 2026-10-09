@@ -540,11 +540,10 @@ fn rex_ai(
         let fwd = Vec3::new(r.yaw.sin(), 0.0, r.yaw.cos());
         let mut pos = tf.translation + fwd * r.speed * dt;
         pos = arena.collide(pos, 2.0);
-        // follow the ground (keep the last height off the mapped ground)
-        if let Some(y) = arena.ground_at(Vec3::new(pos.x, tf.translation.y, pos.z)) {
+        // stay on the mapped ground: no walking off ledges or the edge of the map; follow the ground
+        let (mut pos, ground) = arena.creature_step(tf.translation, pos, 1.6, 2.5);
+        if let Some(y) = ground {
             pos.y = tf.translation.y + (y - tf.translation.y) * (8.0 * dt).min(1.0);
-        } else {
-            pos.y = tf.translation.y;
         }
         tf.translation = pos;
     }

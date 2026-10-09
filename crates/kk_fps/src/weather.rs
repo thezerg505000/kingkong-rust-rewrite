@@ -105,13 +105,22 @@ fn thunder(
     let base = *th.base_ambient.get_or_insert(ambient.brightness);
     if now >= th.next {
         th.next = now + rand::thread_rng().gen_range(25.0..45.0);
-        th.flash = 0.18;
+        th.flash = 0.0001;
         th.boom_at = Some(now + rand::thread_rng().gen_range(0.6..1.8));
     }
+    // one lightning flash: a strike and a weaker re-strike, each rising in one frame and dying away
+    // smoothly (a hard on/off step read as a flickering light) [G shape]
     if th.flash > 0.0 {
-        th.flash -= time.delta_secs();
-        ambient.brightness = base * if th.flash > 0.09 { 3.0 } else { 1.8 };
-    } else {
+        th.flash += time.delta_secs();
+        let t = th.flash;
+        let strike = (-t / 0.07).exp();
+        let re = if t > 0.16 { 0.55 * (-(t - 0.16) / 0.1).exp() } else { 0.0 };
+        ambient.brightness = base * (1.0 + 1.6 * (strike + re));
+        if t > 0.9 {
+            th.flash = 0.0;
+            ambient.brightness = base;
+        }
+    } else if (ambient.brightness - base).abs() > 1e-3 {
         ambient.brightness = base;
     }
     if th.boom_at.is_some_and(|t| now >= t) {

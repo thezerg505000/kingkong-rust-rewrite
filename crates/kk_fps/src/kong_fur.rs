@@ -185,6 +185,14 @@ impl Plugin for KongFurPlugin {
 #[derive(Component)]
 pub struct FurShell;
 
+/// Alpha-test reference of the shell at fraction `f` (i / N) of the fur length. The engine uses i / N [C], but
+/// with the PC strand texture that leaves the outer half of the coat at 41 %..1 % coverage, which reads as a
+/// see-through halo on this renderer (no fur-specific lighting, no blur); the remaster keeps the inner shells
+/// solid and tapers later: 0.75 f^1.4 gives 100 % at the root, ~77 % at mid length, ~13 % at the tips [G].
+pub fn shell_alpha_ref(f: f32) -> f32 {
+    0.75 * f.clamp(0.0, 1.0).powf(1.4)
+}
+
 /// Marks a Kong mesh whose shells exist.
 #[derive(Component)]
 struct FurDone;
@@ -255,8 +263,8 @@ fn spawn_shells(
                 base: b,
                 extension: FurExt {
                     fur: FurUniform {
-                        // shell offset, alpha ref i/N, inner shells a little darker [G]
-                        shell: Vec4::new(spec.len * f, f, 0.72 + 0.28 * f, 0.0),
+                        // shell offset, alpha ref, inner shells a little darker [G]
+                        shell: Vec4::new(spec.len * f, shell_alpha_ref(f), 0.72 + 0.28 * f, 0.0),
                         m: Vec4::new(spec.m[0], spec.m[1], spec.m[2], spec.m[3]),
                         off_shift: Vec4::new(spec.m[4], spec.m[5], spec.shift.x * i as f32, spec.shift.y * i as f32),
                     },

@@ -239,6 +239,8 @@ pub struct Arena {
     pub rex_yaw: f32,
     /// per `BREAKABLES` entry: broken (its boxes and wall faces stop blocking)
     pub broken: Vec<bool>,
+    /// nothing walks below this height: under it is the outside of the playable map [G]
+    pub min_floor: f32,
 }
 
 impl Arena {
@@ -266,6 +268,7 @@ impl Arena {
             rex_spawn: Vec3::new(0.0, 0.0, -40.0),
             rex_yaw: 0.0,
             broken: vec![false; BREAKABLES.len()],
+            min_floor: f32::MIN,
         }
     }
 
@@ -285,6 +288,7 @@ impl Arena {
             rex_spawn: Vec3::new(0.0, 0.0, -4000.0),
             rex_yaw: 0.0,
             broken: vec![false; BREAKABLES.len()],
+            min_floor: f32::MIN,
         }
     }
 
@@ -299,6 +303,8 @@ impl Arena {
             if let Some(y) = l.ground_base(a.player_spawn.x, a.player_spawn.z, 50.0, 0.0) { a.player_spawn.y = y; }
             if let Some(y) = l.ground_base(a.rex_spawn.x, a.rex_spawn.z, 50.0, 0.0) { a.rex_spawn.y = y; }
         }
+        // the courtyard and its passages lie within a few metres of the spawn floor [G]
+        a.min_floor = a.player_spawn.y.min(a.rex_spawn.y) - 6.0;
         a
     }
 
@@ -321,6 +327,8 @@ impl Arena {
             if let Some(y) = l.ground_base(a.player_spawn.x, a.player_spawn.z, wy + 3.6, 0.0) { a.player_spawn.y = y; }
             if let Some(y) = l.ground_base(a.rex_spawn.x, a.rex_spawn.z, wy + 3.6, 0.0) { a.rex_spawn.y = y; }
         }
+        // wading depth: the pools' render floors drop away far under the water planes [G]
+        a.min_floor = wy - 4.0;
         a
     }
 
@@ -369,7 +377,11 @@ impl Arena {
         if let Some(w) = &level.walls {
             p = w.push_out(p, r, STEP, HEIGHT, &self.broken);
         }
-        let ground = match (level.ground(p.x, p.z, old.y, STEP + 0.05), stand) {
+        // no stepping off a drop deeper than MAX_DROP or below the map's floor: the playable edge [G]
+        const MAX_DROP: f32 = 2.0;
+        let min_y = (old.y - MAX_DROP).max(self.min_floor);
+        let ground_ok = |x: f32, z: f32| level.ground(x, z, old.y, STEP + 0.05).filter(|y| *y >= min_y);
+        let ground = match (ground_ok(p.x, p.z), stand) {
             (Some(g), Some(s)) => Some(g.max(s)),
             (g, s) => g.or(s),
         };
@@ -381,16 +393,35 @@ impl Arena {
             None => {
                 // slide along the boundary: try each axis on its own
                 let px = Vec3::new(p.x, old.y, old.z);
-                if let Some(y) = level.ground(px.x, px.z, old.y, STEP + 0.05) {
+                if let Some(y) = ground_ok(px.x, px.z) {
                     return Vec3::new(px.x, y, px.z);
                 }
                 let pz = Vec3::new(old.x, old.y, p.z);
-                if let Some(y) = level.ground(pz.x, pz.z, old.y, STEP + 0.05) {
+                if let Some(y) = ground_ok(pz.x, pz.z) {
                     return Vec3::new(pz.x, y, pz.z);
                 }
                 old
             }
         }
+    }
+
+    /// A big creature's step (the V-Rex on Jack's levels): the new XZ and its ground when there is ground
+    /// at most `up` above and `down` below the old height (and above the map floor); otherwise slide along
+    /// the edge one axis at a time, or stay. Keeps it on the playable ground [G].
+    pub fn creature_step(&self, old: Vec3, new: Vec3, up: f32, down: f32) -> (Vec3, Option<f32>) {
+        let Some(level) = &self.level else { return (new, Some(0.0)) };
+        let min_y = (old.y - down).max(self.min_floor);
+        let g = |x: f32, z: f32| level.ground(x, z, old.y, up).filter(|y| *y >= min_y);
+        for (x, z) in [(new.x, new.z), (new.x, old.z), (old.x, new.z)] {
+            if let Some(y) = g(x, z) {
+                return (Vec3::new(x, old.y, z), Some(y));
+            }
+        }
+        // off the mapped ground already (spawned outside): keep the move, keep the height
+        if g(old.x, old.z).is_none() {
+            return (Vec3::new(new.x, old.y, new.z), None);
+        }
+        (old, None)
     }
 
     /// Run `p` through Jack's collision until it stops moving (spawn / vantage points that start inside
