@@ -1,3 +1,30 @@
+# UPDATE 2026-10-09 (session 4): Kong fixes, Bevy 0.19 remaster options, audio engine, mods
+
+- **Kong fur** (`spec/evidence/KFUR02.md`): fur length per vertex = 1 − RLI alpha (PC `vsfur.hlsl`); the RLI records
+  after Kong's GEOs give a bare face/chest/palms. `kk_extract` writes `kong/kong_fur_rli.bin`. The body GEO's normals
+  disagree with its triangles on 543/1301 vertices: rebuilt from the triangles at load (body fur and lighting).
+- **Kong after the win**: `Fight` hands Kong back to `k_ETAT_main` when the victory sequence ends (`victory_done`),
+  `kk_fps` keeps stepping the fight for the player (free roam; test `after_the_victory_kong_is_free_to_move_again`,
+  batch `b13_kong_roam`).
+- **Kong on slopes**: `fightarena.rs` walk grid flood-filled from the flat fight floor (up 0.95 m / down 2.2 m per
+  metre), Kong's height from the full ground set. The flat grid still picks centre / axis / Jack's vantage.
+  Side effect: the AI demo fight changes, b7/b9 lost "fury start" and "rex roar" with seed 1 (see below).
+- **Bevy 0.16 → 0.19** (branch work merged): Message/Event split, render passes as systems (`godray.rs`), world
+  serialization renames, `CursorOptions`, `Hdr`, `GltfMaterial` (`#MaterialN/std`), `FontSize`, ... Software-GL
+  batches need two local-only patches that are NOT in the repo: a patched `bevy_render` (wgpu 29's GL backend needs
+  the X11 display at instance creation; `--config patch.crates-io.bevy_render.path=...`, see the session notes) and
+  the `gles` feature. On Windows / Vulkan / DX12 nothing of that applies.
+- **Remaster options** (`docs/REMASTER.md`): `graphics.rs` (settings, presets, camera/light application),
+  `fsr.rs` + `fsr.wgsl` (FSR 1.0 EASU + RCAS port), `raytrace.rs` (Bevy Solari, `raytracing` feature), DLSS through
+  Bevy (`dlss` feature, `scripts/windows/build_dlss.bat`), `settings_menu.rs` (F10). RTX Remix cannot hook a wgpu
+  renderer (D3D8/9 fixed-function only); the Remix Toolkit MCP was not installed (it helps develop the Toolkit).
+- **Audio** (`audio_engine.rs`): bevy_seedling / Firewheel replaces bevy_audio: Original engine, or Remaster with
+  HRTF / panned 3D voices, Freeverb send per scene, occlusion low-pass from level-collision rays.
+- **Mods** (`mods.rs`, `docs/MODDING.md`): `mods/<name>/mod.json`, `assets/` overrides through a layered default
+  asset source and `mods::resolve` for std::fs reads, `tunables.json` (fog, sun, ambient, rain, time scale).
+- **Gaps**: ray tracing and DLSS compile but were never run (no GPU in the cloud); FSR + depth-reading post effects
+  (DoF, motion blur) see the scaled depth; Solari skips skinned meshes; b7/b9 AI demo seed needs re-picking.
+
 # UPDATE 2026-10-08 (session 3): rex reactions, jaw-break, gate, Jack collision, spears, F8
 
 - **Rex hit reactions + KO + jaw-break recovered** (`spec/evidence/KC19.md`, KC11 updated): the Kong-level rex's own

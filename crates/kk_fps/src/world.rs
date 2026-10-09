@@ -8,7 +8,7 @@ use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::math::Affine2;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use rand::{Rng, SeedableRng};
 
 /// Render layer used by the arms/weapon viewmodel camera.
@@ -535,16 +535,16 @@ pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
-        let dir = crate::asset_dir();
+        let _dir = crate::asset_dir();
         let arena = if crate::testarea::active() {
             info!("arena: test area (KK_SCENE=testarea)");
             Arena::testarea()
-        } else { match LevelCollision::load(&dir.join(crate::scene::level_collision())) {
-            Some(mut l) if dir.join(crate::scene::level_glb()).exists() && std::env::var("KK_STAND_IN").is_err() => {
+        } else { match LevelCollision::load(&crate::mods::resolve(crate::scene::level_collision())) {
+            Some(mut l) if crate::mods::resolve(crate::scene::level_glb()).exists() && std::env::var("KK_STAND_IN").is_err() => {
                 // the 03E slice only: the swamp fights keep their tuned arenas (KK_WALLS=1 forces it on)
                 if std::env::var("KK_NO_WALLS").is_err() && (!crate::scene::swamp() || std::env::var("KK_WALLS").is_ok()) {
                     let t0 = std::time::Instant::now();
-                    l.walls = crate::meshcol::WallMesh::load(&dir.join(crate::scene::level_glb()));
+                    l.walls = crate::meshcol::WallMesh::load(&crate::mods::resolve(crate::scene::level_glb()));
                     if let Some(w) = l.walls.as_mut() {
                         let extra = std::mem::take(&mut w.floor);
                         l.add_ground(extra);
@@ -561,7 +561,7 @@ impl Plugin for WorldPlugin {
         } };
         app.insert_resource(arena)
             .insert_resource(ClearColor(Color::srgb(0.52, 0.58, 0.55)))
-            .insert_resource(AmbientLight {
+            .insert_resource(GlobalAmbientLight {
                 color: Color::srgb(0.75, 0.82, 0.78),
                 brightness: 450.0,
                 ..default()
@@ -650,7 +650,7 @@ fn spawn_arena(
     mut mats: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     _clear: ResMut<ClearColor>,
-    _ambient: ResMut<AmbientLight>,
+    _ambient: ResMut<GlobalAmbientLight>,
 ) {
     if crate::testarea::active() {
         spawn_viewmodel_lights(&mut commands);
@@ -659,9 +659,9 @@ fn spawn_arena(
     if arena.level.is_some() {
         if let Some(scene) = rigs.level.as_ref().and_then(|h| gltfs.get(h)).map(|g| g.scenes[0].clone()) {
             if crate::scene::swamp() {
-                commands.spawn((Name::new("Level07D"), SceneRoot(scene))).observe(crate::swamp::on_level_ready);
+                commands.spawn((Name::new("Level07D"), WorldAssetRoot(scene))).observe(crate::swamp::on_level_ready);
             } else {
-                commands.spawn((Name::new("Level03E"), SceneRoot(scene))).observe(on_level_ready);
+                commands.spawn((Name::new("Level03E"), WorldAssetRoot(scene))).observe(on_level_ready);
             }
         }
         if crate::scene::swamp() {
@@ -735,14 +735,14 @@ fn spawn_arena(
         Name::new("Sun"),
         DirectionalLight {
             illuminance: 9000.0,
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             color: Color::srgb(1.0, 0.95, 0.85),
             ..default()
         },
         Transform::from_xyz(30.0, 60.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
         // lights both the world and the viewmodel layer
         RenderLayers::from_layers(&[0, VIEW_LAYER]),
-        bevy::pbr::CascadeShadowConfigBuilder {
+        bevy::light::CascadeShadowConfigBuilder {
             maximum_distance: 120.0,
             ..default()
         }
@@ -753,7 +753,7 @@ fn spawn_arena(
 /// Level meshes: set matte surfaces. `KK_HIDE=a,b` hides instances whose name contains any
 /// of the substrings (debugging aid).
 fn on_level_ready(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::world_serialization::WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -764,7 +764,7 @@ fn on_level_ready(
         .map(|v| v.split(',').filter(|s| !s.is_empty()).map(String::from).collect())
         .unwrap_or_default();
     let mut done = std::collections::HashSet::new();
-    for e in children.iter_descendants(trigger.target()) {
+    for e in children.iter_descendants(trigger.entity) {
         if let Ok(n) = names.get(e) {
             // OCL_* are occluder volumes (invisible in the game)
             if n.as_str().contains("OCL_") || hide.iter().any(|h| n.as_str().contains(h.as_str())) {
@@ -810,14 +810,14 @@ fn on_level_ready(
                     let nh = mats.add(m);
                     commands.entity(e).insert(MeshMaterial3d(nh));
                     // the sky dome must not shadow the moon light
-                    commands.entity(e).insert((bevy::pbr::NotShadowCaster, bevy::pbr::NotShadowReceiver));
+                    commands.entity(e).insert((bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
                 }
                 continue;
             }
             if !done.insert(h.0.id()) {
                 continue;
             }
-            if let Some(m) = mats.get_mut(&h.0) {
+            if let Some(mut m) = mats.get_mut(&h.0) {
                 m.perceptual_roughness = 1.0;
                 m.reflectance = 0.08;
                 // RLI multiplier (1 + 10*RLI, baked in COLOR_0) uses an unrecovered global RLI
@@ -834,13 +834,13 @@ fn on_level_ready(
 fn spawn_viewmodel_lights(commands: &mut Commands) {
     commands.spawn((
         Name::new("ViewKey"),
-        DirectionalLight { illuminance: 8500.0, shadows_enabled: false, color: Color::srgb(0.95, 0.97, 0.92), ..default() },
+        DirectionalLight { illuminance: 8500.0, shadow_maps_enabled: false, color: Color::srgb(0.95, 0.97, 0.92), ..default() },
         Transform::default().looking_to(Vec3::new(0.6, -0.8, -0.4), Vec3::Y),
         RenderLayers::layer(VIEW_LAYER),
     ));
     commands.spawn((
         Name::new("ViewFill"),
-        DirectionalLight { illuminance: 2200.0, shadows_enabled: false, color: Color::srgb(0.55, 0.75, 0.8), ..default() },
+        DirectionalLight { illuminance: 2200.0, shadow_maps_enabled: false, color: Color::srgb(0.55, 0.75, 0.8), ..default() },
         Transform::default().looking_to(Vec3::new(-0.7, 0.2, 0.3), Vec3::Y),
         RenderLayers::layer(VIEW_LAYER),
     ));

@@ -13,7 +13,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use std::sync::OnceLock;
 
 /// Is the test area the active scene? `KK_SCENE=testarea`, or a test-area batch (`KK_BATCH=t1_..`).
@@ -57,10 +57,10 @@ impl Plugin for TestAreaPlugin {
         }
         app.insert_resource(ShowLabels(true))
             .insert_resource(ClearColor(SKY))
-            .insert_resource(AmbientLight { color: Color::srgb(0.9, 0.93, 1.0), brightness: 700.0, ..default() })
+            .insert_resource(GlobalAmbientLight { color: Color::srgb(0.9, 0.93, 1.0), brightness: 700.0, ..default() })
             .add_systems(OnEnter(GameState::Playing), spawn_scene)
             .add_systems(Update, (remove_rex, neutral_fog, labels).run_if(in_state(GameState::Playing)))
-            .add_systems(PostUpdate, label_visibility.before(bevy::render::view::VisibilitySystems::VisibilityPropagate));
+            .add_systems(PostUpdate, label_visibility.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }
 }
 
@@ -151,10 +151,10 @@ fn spawn_scene(
     ));
     commands.spawn((
         Name::new("Sun"),
-        DirectionalLight { illuminance: 11000.0, shadows_enabled: true, color: Color::srgb(1.0, 0.97, 0.9), ..default() },
+        DirectionalLight { illuminance: 11000.0, shadow_maps_enabled: true, color: Color::srgb(1.0, 0.97, 0.9), ..default() },
         Transform::from_xyz(40.0, 80.0, 30.0).looking_at(Vec3::ZERO, Vec3::Y),
         RenderLayers::from_layers(&[0, crate::world::VIEW_LAYER]),
-        bevy::pbr::CascadeShadowConfigBuilder { maximum_distance: 160.0, first_cascade_far_bound: 12.0, ..default() }.build(),
+        bevy::light::CascadeShadowConfigBuilder { maximum_distance: 160.0, first_cascade_far_bound: 12.0, ..default() }.build(),
     ));
     // distance markers: a post every 10 m down Jack's view axis (-Z) and along +/-X, labelled
     let post = meshes.add(Cuboid::new(0.25, 2.0, 0.25));
@@ -196,7 +196,7 @@ fn spawn_label_ui(commands: &mut Commands, target: LabelTarget, text: &str) -> E
             Node { position_type: PositionType::Absolute, padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)), ..default() },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)),
             Text::new(text.to_string()),
-            TextFont { font_size: 15.0, ..default() },
+            TextFont { font_size: FontSize::Px(15.0), ..default() },
             TextColor(Color::WHITE),
             Visibility::Hidden,
         ))

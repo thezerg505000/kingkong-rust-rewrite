@@ -17,6 +17,8 @@ struct GodRay {
     zoom_c: f32,
     factor: f32,
     tint: vec4<f32>,
+    // xy: depth-buffer uv scale (< 1 while FSR renders the main pass smaller), zw: unused
+    depth_scale: vec4<f32>,
 };
 
 @group(0) @binding(0) var scene_tex: texture_2d<f32>;
@@ -34,7 +36,7 @@ const SKY_DEPTH: f32 = 0.05 / 400.0;
 fn masked(uv: vec2<f32>) -> vec3<f32> {
 #ifndef NO_DEPTH
     let dims = vec2<f32>(textureDimensions(depth_tex));
-    let p = clamp(vec2<i32>(uv * dims), vec2<i32>(0), vec2<i32>(dims) - vec2<i32>(1));
+    let p = clamp(vec2<i32>(uv * gr.depth_scale.xy * dims), vec2<i32>(0), vec2<i32>(dims) - vec2<i32>(1));
     let d = textureLoad(depth_tex, p, 0);
     if (d > SKY_DEPTH) {
         return vec3<f32>(0.0);

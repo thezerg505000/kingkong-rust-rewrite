@@ -26,9 +26,11 @@
 
 use bevy::asset::embedded_asset;
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, NotShadowCaster};
+use bevy::light::NotShadowCaster;
+use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
+use bevy::render::render_resource::{AsBindGroup, ShaderType};
+use bevy::shader::ShaderRef;
 
 pub type FurMaterial = ExtendedMaterial<StandardMaterial, FurExt>;
 
@@ -54,6 +56,12 @@ impl MaterialExtension for FurExt {
     }
     fn fragment_shader() -> ShaderRef {
         "embedded://kk_fps/kong_fur.wgsl".into()
+    }
+    fn enable_prepass() -> bool {
+        false
+    }
+    fn enable_shadows() -> bool {
+        false
     }
 }
 
@@ -104,7 +112,7 @@ pub fn spec_for(material_name: &str) -> Option<FurSpec> {
 
 /// RLI alpha per kong.glb vertex (0 = full-length fur, 255 = none); `None` when the asset is missing.
 fn rli_alpha() -> Option<Vec<u8>> {
-    std::fs::read(crate::asset_dir().join("kong/kong_fur_rli.bin")).ok()
+    std::fs::read(crate::mods::resolve("kong/kong_fur_rli.bin")).ok()
 }
 
 /// Copy of a Kong part mesh with the fur length factor `1 - RLI.a` in the vertex colour alpha.
@@ -169,7 +177,7 @@ pub struct KongFurPlugin;
 impl Plugin for KongFurPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "kong_fur.wgsl");
-        app.add_plugins(MaterialPlugin::<FurMaterial> { prepass_enabled: false, shadows_enabled: false, ..default() })
+        app.add_plugins(MaterialPlugin::<FurMaterial>::default())
             .add_systems(Update, spawn_shells);
     }
 }
@@ -239,6 +247,8 @@ fn spawn_shells(
             let f = i as f32 / n as f32;
             let mut b = base.clone();
             b.alpha_mode = AlphaMode::Mask(0.5);
+            // the shell shader writes lit colour directly: keep it forward even when the scene renders deferred
+            b.opaque_render_method = bevy::material::OpaqueRendererMethod::Forward;
             b.double_sided = true;
             b.cull_mode = None;
             let m = fur_mats.add(FurMaterial {
@@ -261,7 +271,7 @@ fn spawn_shells(
                 *tf,
                 Visibility::default(),
                 NotShadowCaster,
-                bevy::render::view::NoFrustumCulling,
+                bevy::camera::visibility::NoFrustumCulling,
                 ChildOf(parent.parent()),
             ));
             if let Some(s) = skin {

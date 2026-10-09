@@ -42,26 +42,26 @@ impl Plugin for WeatherPlugin {
 
 fn start_ambience(
     arena: Res<crate::world::Arena>,
+    tunables: Res<crate::mods::Tunables>,
     mut rain: ResMut<Rain>,
     mut gizmo_cfg: ResMut<GizmoConfigStore>,
-    #[cfg(feature = "audio")] mut commands: Commands,
-    #[cfg(feature = "audio")] assets: Res<AssetServer>,
-    #[cfg(feature = "audio")] defs: Res<crate::sfx::SoundDefs>,
+    #[cfg(feature = "audio_engine")] mut commands: Commands,
+    #[cfg(feature = "audio_engine")] assets: Res<AssetServer>,
+    #[cfg(feature = "audio_engine")] defs: Res<crate::sfx::SoundDefs>,
+    #[cfg(feature = "audio_engine")] settings: Res<crate::audio_engine::AudioSettings>,
+    #[cfg(feature = "audio_engine")] reverb: Res<crate::audio_engine::backend::ReverbBus>,
 ) {
-    rain.enabled = arena.level.is_some() && std::env::var("KK_NO_RAIN").is_err();
+    rain.enabled = arena.level.is_some() && std::env::var("KK_NO_RAIN").is_err() && tunables.get("rain", 1.0) > 0.5;
     let (cfg, _) = gizmo_cfg.config_mut::<DefaultGizmoConfigGroup>();
     cfg.line.width = if crate::scene::swamp() { 1.0 } else { 1.2 };
-    #[cfg(feature = "audio")]
+    #[cfg(feature = "audio_engine")]
     if rain.enabled {
         // 05C has its own rain ambience (Amb_05C_area_c_rain, "05 River" bank) [C name]
         let amb = if crate::scene::marsh05c() && defs.0.contains_key("Amb_05C_area_c_rain") { "Amb_05C_area_c_rain" } else { "Amb_03E_area_a_rain" };
         if let Some(d) = defs.0.get(amb) {
             if let Some(f) = d.files.first() {
-                commands.spawn((
-                    Name::new("Ambience03E"),
-                    AudioPlayer::<AudioSource>(assets.load(f.clone())),
-                    PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::Linear(d.volume)),
-                ));
+                let e = crate::audio_engine::backend::spawn_voice(&mut commands, &settings, &reverb, assets.load(f.clone()), d.volume, 1.0, None, true);
+                commands.entity(e).insert(Name::new("Ambience"));
             }
         }
     }
@@ -95,8 +95,8 @@ fn thunder(
     time: Res<Time>,
     mut th: ResMut<Thunder>,
     rain: Res<Rain>,
-    mut ambient: ResMut<AmbientLight>,
-    mut sfx: EventWriter<PlaySfx>,
+    mut ambient: ResMut<GlobalAmbientLight>,
+    mut sfx: MessageWriter<PlaySfx>,
 ) {
     if !rain.enabled {
         return;

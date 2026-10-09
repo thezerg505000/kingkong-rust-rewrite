@@ -180,7 +180,7 @@ const REX_DIFFUSE: [f32; 3] = [0.329 * 1.39, 0.371 * 1.39, 0.329 * 1.39];
 
 impl RexMaterials {
     fn apply(&self, h: &Handle<StandardMaterial>, label: Option<&str>, mats: &mut Assets<StandardMaterial>) {
-        let Some(m) = mats.get_mut(h) else { return };
+        let Some(mut m) = mats.get_mut(h) else { return };
         let head = label == Some("Material1");
         // x1.5 for the engine's per-object light colour (DAT_00f4b154, not recovered) and a
         // slight blue trim against the teal key light, matched to the master reference [G]
@@ -226,7 +226,7 @@ fn load_speeds() -> RexSpeeds {
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
     .collect();
-    let path = crate::asset_dir().join("trex_rootmotion.json");
+    let path = crate::mods::resolve("trex_rootmotion.json");
     if let Ok(txt) = std::fs::read_to_string(&path) {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
             if let Some(obj) = v.as_object() {
@@ -255,14 +255,14 @@ fn spawn_rex(mut commands: Commands, rigs: Res<Rigs>, settings: Res<RexSettings>
         ))
         .id();
     let scene = commands
-        .spawn((Name::new("RexScene"), RexScene, SceneRoot(rigs.rex_scene.clone()), Transform::default()))
+        .spawn((Name::new("RexScene"), RexScene, WorldAssetRoot(rigs.rex_scene.clone()), Transform::default()))
         .observe(on_rex_ready)
         .id();
     commands.entity(actor).add_child(scene);
 }
 
 fn on_rex_ready(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::world_serialization::WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -274,13 +274,13 @@ fn on_rex_ready(
     rex_materials: Res<RexMaterials>,
     server: Res<AssetServer>,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let mut bones = Vec::new();
     let (mut head, mut pelvis, mut jaw, mut foot_l, mut foot_r) = (None, None, None, None, None);
     for e in children.iter_descendants(root) {
         if meshes.contains(e) {
             // skinned AABB is computed from the bind pose, which sits ~3 m off the animated body
-            commands.entity(e).insert(bevy::render::view::NoFrustumCulling);
+            commands.entity(e).insert(bevy::camera::visibility::NoFrustumCulling);
             if let Ok(h) = mat_q.get(e) {
                 let label = server.get_path(h.0.id()).and_then(|p| p.label().map(String::from));
                 rex_materials.apply(&h.0, label.as_deref(), &mut mats);
@@ -320,7 +320,7 @@ fn start_hesite(r: &mut Rex) {
 /// `check_paf@0x849910` for species 0x10 (G17/X04): bullets never change hp; they slow the rex and a single
 /// hit >= 20 makes it re-think. Being shot always alerts it.
 fn rex_damage(
-    mut events: EventReader<RexDamage>,
+    mut events: MessageReader<RexDamage>,
     mut rex: Query<(&mut Rex, &Transform)>,
     players: Query<&Player>,
     settings: Res<RexSettings>,
@@ -385,7 +385,7 @@ fn rex_ai(
     bones: Query<&RexBones>,
     gts: Query<&GlobalTransform>,
     mut players: Query<(&mut Player, &mut Transform), Without<Rex>>,
-    mut shots: EventReader<GunEvent>,
+    mut shots: MessageReader<GunEvent>,
 ) {
     let Ok((mut r, mut tf)) = rex.single_mut() else { return };
     let Ok((mut p, mut ptf)) = players.single_mut() else { return };
@@ -678,7 +678,7 @@ fn rex_events(
     rex: Query<(&Rex, &GlobalTransform)>,
     bones: Query<&RexBones>,
     gts: Query<&GlobalTransform>,
-    mut out: EventWriter<crate::events::RexEvent>,
+    mut out: MessageWriter<crate::events::RexEvent>,
     mut st: Local<RexEventState>,
 ) {
     use crate::events::RexEvent as E;

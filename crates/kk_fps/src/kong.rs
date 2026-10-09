@@ -350,7 +350,7 @@ impl Plugin for KongPlugin {
         if !kong_enabled() {
             return;
         }
-        use bevy::render::view::VisibilitySystems;
+        use bevy::camera::visibility::VisibilitySystems;
         app.add_systems(OnEnter(GameState::Playing), setup_kong)
             .add_systems(
                 Update,
@@ -390,7 +390,7 @@ impl Plugin for KongPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    pelvis_lock.after(bevy::transform::TransformSystem::TransformPropagate),
+                    pelvis_lock.after(bevy::transform::TransformSystems::Propagate),
                     kong_hud_vis.before(VisibilitySystems::VisibilityPropagate),
                 )
                     .run_if(resource_exists::<KongCtl>),
@@ -417,7 +417,7 @@ fn build_rig(rig: &mut Rig, gltf: &Gltf, clips: &Assets<AnimationClip>, graphs: 
 
 /// kong_actions.json: action id -> clip sequence. Ids are hex strings ("0xab").
 fn load_actions(rig: &Rig) -> HashMap<u32, Action> {
-    let path = crate::asset_dir().join(ACTIONS_JSON);
+    let path = crate::mods::resolve(ACTIONS_JSON);
     let mut out = HashMap::new();
     let Some(v) = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else {
         warn!("{} missing: Kong clips fall back to label search", path.display());
@@ -574,7 +574,7 @@ fn setup_kong(
         .spawn((
             Name::new("KongScene"),
             KongSceneRoot,
-            SceneRoot(g.scenes[0].clone()),
+            WorldAssetRoot(g.scenes[0].clone()),
             KongAnim::default(),
             Transform::default(),
         ))
@@ -587,7 +587,7 @@ fn setup_kong(
 
 #[allow(clippy::too_many_arguments)]
 fn on_kong_ready(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::world_serialization::WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -598,7 +598,7 @@ fn on_kong_ready(
     mut mats: ResMut<Assets<StandardMaterial>>,
     (mesh_q, mut mesh_assets): (Query<(&Mesh3d, Option<&bevy::gltf::GltfMaterialName>)>, ResMut<Assets<Mesh>>),
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let mut found: HashMap<&'static str, Entity> = HashMap::new();
     const WANT: [&str; 9] = [
         "B_Kong_Bassin", "B_Kong_Tete", "B_Kong_Machoire", "B_Kong_PiedG", "B_Kong_PiedD", "B_Kong_MainG", "B_Kong_MainD", "B_Kong_Cou",
@@ -607,19 +607,19 @@ fn on_kong_ready(
     for e in children.iter_descendants(root) {
         if meshes.contains(e) {
             // skinned AABBs are computed from the bind pose
-            commands.entity(e).insert((bevy::render::view::NoFrustumCulling, KongMesh));
+            commands.entity(e).insert((bevy::camera::visibility::NoFrustumCulling, KongMesh));
             // the body GEO's own normals disagree with its triangles (kong_fur::weld_smooth_normals)
             if let Ok((m3, Some(mn))) = mesh_q.get(e) {
                 if mn.0 == "kong_body" && std::env::var("KK_KONG_RAW_NORMALS").is_err() {
-                    if let Some(m) = mesh_assets.get_mut(&m3.0) {
-                        let ok = crate::kong_fur::weld_smooth_normals(m);
+                    if let Some(mut m) = mesh_assets.get_mut(&m3.0) {
+                        let ok = crate::kong_fur::weld_smooth_normals(&mut m);
                         info!("kong body normals rebuilt from the triangles: {ok}");
                     }
                 }
             }
             if let Ok(h) = mat_q.get(e) {
-                if let Some(m) = mats.get_mut(&h.0) {
-                    tune_material(m);
+                if let Some(mut m) = mats.get_mut(&h.0) {
+                    tune_material(&mut m);
                 }
             }
         }
@@ -734,7 +734,8 @@ fn bake_kong_normals(
         let Some(m) = mats.get(&h.0) else { continue };
         if let Some(d) = &m.base_color_texture {
             if !done.contains(&d.id()) {
-                if let Some(img) = images.get_mut(d) {
+                if let Some(mut img) = images.get_mut(d) {
+                    let img_w = img.texture_descriptor.size.width as usize;
                     if let Some(data) = img.data.as_mut() {
                         done.insert(d.id());
                         let k = kong_contrast();
@@ -746,7 +747,7 @@ fn bake_kong_normals(
                             n += 1;
                         }
                         let mean = (sum / n.max(1) as f64) as f32;
-                        let w = img.texture_descriptor.size.width as usize;
+                        let w = img_w;
                         let amp = std::env::var("KK_KONG_FUR").ok().and_then(|v| v.parse().ok()).unwrap_or(if crate::kong_fur::enabled() { 0.0 } else { 1.3f32 });
                         let reps = if w >= 1024 { 2usize } else { 1 };
                         for (i, px) in data.chunks_exact_mut(4).enumerate() {
@@ -770,7 +771,7 @@ fn bake_kong_normals(
         if done.contains(&n.id()) {
             continue;
         }
-        let Some(img) = images.get_mut(n) else { continue };
+        let Some(mut img) = images.get_mut(n) else { continue };
         let Some(data) = img.data.as_mut() else { continue };
         done.insert(n.id());
         for px in data.chunks_exact_mut(4) {
@@ -831,7 +832,7 @@ fn kong_switch(
         *vis = Visibility::Inherited;
         clean.0 = c.clean_prev;
         for e in &cams {
-            commands.entity(e).remove::<bevy::core_pipeline::motion_blur::MotionBlur>();
+            commands.entity(e).remove::<bevy::post_process::motion_blur::MotionBlur>();
         }
     }
     let t = c.t;
@@ -900,11 +901,11 @@ fn kong_fight(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     gamepads: Query<&Gamepad>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    windows: Query<&bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
     arena: Res<Arena>,
     mut ctl: ResMut<KongCtl>,
     mut jack: Query<(&mut Player, &mut Transform)>,
-    mut respawn: EventReader<crate::hud::RespawnAll>,
+    mut respawn: MessageReader<crate::hud::RespawnAll>,
     breakables: Option<Res<crate::breakable::Breakables>>,
 ) {
     let gate_intact = breakables.as_ref().is_some_and(|b| !b.broken.is_empty() && !b.is_broken("porte")) && arena.level.is_some() && !crate::scene::swamp();
@@ -947,7 +948,7 @@ fn kong_fight(
     }
     let grabbed = windows
         .single()
-        .map(|w| w.cursor_options.grab_mode != bevy::window::CursorGrabMode::None)
+        .map(|w| w.grab_mode != bevy::window::CursorGrabMode::None)
         .unwrap_or(false);
     let input = if c.player_control {
         let mut i = read_pad(&keys, &mouse, &gamepads, c.cam_fwd, grabbed);
@@ -1662,7 +1663,7 @@ fn kong_hud_update(mut commands: Commands, ctl: Res<KongCtl>, mut q: Query<&mut 
         commands.spawn((
             KongHud,
             Text::new(""),
-            TextFont { font_size: 18.0, ..default() },
+            TextFont { font_size: FontSize::Px(18.0), ..default() },
             TextColor(Color::srgba(0.95, 0.95, 0.85, 0.9)),
             Node { position_type: PositionType::Absolute, top: Val::Px(10.0), left: Val::Px(14.0), ..default() },
         ));
@@ -1707,6 +1708,16 @@ fn id_played(c: &KongCtl, ids: &[u32]) -> bool {
 
 pub fn batch_checks(name: &str, c: &KongCtl, marks: &[(&'static str, f32)]) -> Vec<Value> {
     let mut v = vec![];
+    // the fight's event timeline next to the report (debugging coverage changes)
+    if let Ok(dir) = std::env::var("KK_BATCH_OUT") {
+        let txt: String = c
+            .log
+            .iter()
+            .filter(|(_, e)| !matches!(e, FightEvent::Anim { .. } | FightEvent::CameraShake { .. }))
+            .map(|(t, e)| format!("{t:8.2} {e:?}\n"))
+            .collect();
+        let _ = std::fs::write(std::path::Path::new(&dir).join(format!("{name}_fight_log.txt")), txt);
+    }
     let phase = |p: Phase| c.has(|e| matches!(e, FightEvent::KongPhase { phase } if *phase == p));
     let rexmove = |m: RexMove| c.has(|e| matches!(e, FightEvent::RexAttack { kind } if *kind == m));
     v.push(chk("no Kong clip id without a clip (kong_actions.json)", json!([]), json!(c.missing_ids), c.missing_ids.is_empty()));
@@ -1885,7 +1896,7 @@ pub fn survey(
     mut commands: Commands,
     mut state: Local<(usize, u32)>,
     mut players: Query<(&mut Player, &mut Transform, &mut Visibility)>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
     mut ctl: ResMut<KongCtl>,
     mut clean: ResMut<CleanHud>,
 ) {

@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub enum GunEvent {
     /// A shot left weapon `w` (index into spec::WEAPONS). `muzzle` is world space.
     Fired { w: usize, muzzle: Vec3, dir: Vec3 },
@@ -20,7 +20,7 @@ pub enum GunEvent {
     Swap { to: usize },
 }
 
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub enum RexEvent {
     Roar { alert: bool, pos: Vec3 },
     Footstep { pos: Vec3, strong: bool },
@@ -32,7 +32,7 @@ pub enum RexEvent {
     Died { pos: Vec3 },
 }
 
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub enum JackEvent {
     Footstep,
     Wounded,
@@ -43,6 +43,6 @@ pub struct EventsPlugin;
 
 impl Plugin for EventsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<GunEvent>().add_event::<RexEvent>().add_event::<JackEvent>();
+        app.add_message::<GunEvent>().add_message::<RexEvent>().add_message::<JackEvent>();
     }
 }

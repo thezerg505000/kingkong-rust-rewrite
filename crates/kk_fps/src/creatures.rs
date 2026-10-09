@@ -152,7 +152,7 @@ pub struct CreatureAssets {
     pub wanted: Vec<usize>,
     pub gltf: Vec<Handle<Gltf>>,
     pub rigs: Vec<Rig>,
-    pub scenes: Vec<Handle<Scene>>,
+    pub scenes: Vec<Handle<bevy::world_serialization::WorldAsset>>,
     pub ready: Vec<bool>,
     /// clip -> root speed (m/s), from *_rootmotion.json
     pub speeds: Vec<HashMap<String, f32>>,
@@ -212,7 +212,7 @@ fn build_rig(rig: &mut Rig, gltf: &Gltf, clips: &Assets<AnimationClip>, graphs: 
 }
 
 fn read_json(path: &str) -> Option<serde_json::Value> {
-    let txt = std::fs::read_to_string(crate::asset_dir().join(path)).ok()?;
+    let txt = std::fs::read_to_string(crate::mods::resolve(path)).ok()?;
     serde_json::from_str(&txt).ok()
 }
 
@@ -446,7 +446,7 @@ pub fn spawn_creature(commands: &mut Commands, assets: &CreatureAssets, kind: us
         Species::Compy => rand::thread_rng().gen_range(kk_mechanics::kong::ann::COMPY_SCALE.0..kk_mechanics::kong::ann::COMPY_SCALE.1),
         _ => def.scale,
     });
-    let scene = commands.spawn((Name::new("CreatureScene"), SceneRoot(assets.scenes[kind].clone()), Transform::default())).id();
+    let scene = commands.spawn((Name::new("CreatureScene"), WorldAssetRoot(assets.scenes[kind].clone()), Transform::default())).id();
     let label = opts.label.unwrap_or_else(|| def.name.to_string());
     let mut e = commands.spawn((
         Name::new(format!("Creature {}", def.name)),
@@ -515,7 +515,7 @@ pub fn default_bronto_path(pos: Vec3, yaw: f32) -> Vec<Vec3> {
 }
 
 fn on_ready(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::world_serialization::WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -525,7 +525,7 @@ fn on_ready(
     creatures: Query<&Creature>,
     assets: Res<CreatureAssets>,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(actor) = parents.get(root).map(|p| p.parent()) else { return };
     let Ok(c) = creatures.get(actor) else { return };
     let def = &KINDS[c.kind];
@@ -533,7 +533,7 @@ fn on_ready(
     for e in children.iter_descendants(root) {
         if meshes.contains(e) {
             // skinned AABB is the bind pose: never cull
-            commands.entity(e).insert(bevy::render::view::NoFrustumCulling);
+            commands.entity(e).insert(bevy::camera::visibility::NoFrustumCulling);
         }
         let Ok(n) = names.get(e) else { continue };
         let n = n.as_str();
@@ -753,7 +753,7 @@ fn ray_sphere(o: Vec3, d: Vec3, c: Vec3, r: f32) -> Option<f32> {
 
 #[allow(clippy::too_many_arguments)]
 fn creature_shots(
-    mut gun: EventReader<GunEvent>,
+    mut gun: MessageReader<GunEvent>,
     time: Res<Time>,
     arena: Res<Arena>,
     cam: Query<&GlobalTransform, With<MainCam>>,
@@ -825,7 +825,7 @@ fn creature_shots(
     }
 }
 
-fn flush_impacts(mut pend: ResMut<PendingImpacts>, mut out: EventWriter<GunEvent>) {
+fn flush_impacts(mut pend: ResMut<PendingImpacts>, mut out: MessageWriter<GunEvent>) {
     for e in pend.0.drain(..) {
         out.write(e);
     }
@@ -936,7 +936,7 @@ fn raptor_ai(
             }
             let d = Vec2::new(cp.x - pos.x, cp.z - pos.z).length();
             slots.push(Perceived {
-                actor: ce.index(),
+                actor: ce.index_u32(),
                 class: 0xe,
                 flags: rp::flag::CORPSE,
                 dist: d,
@@ -1327,7 +1327,7 @@ fn bronto_walk(
                 p.paf("trampled by a brontosaurus", kk_mechanics::kong::ann::BRONTO_STOMP_FLAGS);
                 log.0.push(LogEntry { t: now, who: ent, ev: CEv::Stomp { foot: i, dist, flags: kk_mechanics::kong::ann::BRONTO_STOMP_FLAGS } });
             }
-            if let Some(s) = b.inside.get_mut(i) {
+            if let Some(mut s) = b.inside.get_mut(i) {
                 *s = inside;
             }
         }
@@ -1346,7 +1346,7 @@ fn spawn_slice_pack(
     assets: Res<CreatureAssets>,
     arena: Res<Arena>,
     mut commands: Commands,
-    mut respawn: EventReader<crate::hud::RespawnAll>,
+    mut respawn: MessageReader<crate::hud::RespawnAll>,
     existing: Query<Entity, With<Creature>>,
 ) {
     // creatures are placed once; only F8 (RespawnAll) clears the field and places the pack again

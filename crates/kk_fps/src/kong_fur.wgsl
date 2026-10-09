@@ -21,9 +21,9 @@ struct FurUniform {
     off_shift: vec4<f32>,
 }
 
-@group(2) @binding(100) var<uniform> fur: FurUniform;
-@group(2) @binding(101) var fur_texture: texture_2d<f32>;
-@group(2) @binding(102) var fur_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> fur: FurUniform;
+@group(#{MATERIAL_BIND_GROUP}) @binding(101) var fur_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(102) var fur_sampler: sampler;
 
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {

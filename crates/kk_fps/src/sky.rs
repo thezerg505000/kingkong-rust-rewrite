@@ -24,11 +24,11 @@ use crate::player::MainCam;
 use crate::world::Arena;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
-use bevy::pbr::{NotShadowCaster, NotShadowReceiver};
+use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 use bevy::render::mesh::VertexAttributeValues;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 
 /// Cloud sphere radius (m). Must stay beyond `godray.wgsl`'s SKY_DEPTH distance (400 m).
 pub const SKY_RADIUS: f32 = 900.0;
@@ -62,7 +62,7 @@ pub struct SkyPlugin;
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(GameState::Playing), spawn_sky)
-            .add_systems(PostUpdate, follow_camera.before(TransformSystem::TransformPropagate).run_if(in_state(GameState::Playing)));
+            .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -153,7 +153,7 @@ fn spawn_sky(
         NotShadowCaster,
         NotShadowReceiver,
         RenderLayers::layer(0),
-        bevy::render::view::NoFrustumCulling,
+        bevy::camera::visibility::NoFrustumCulling,
     ));
     // sun core peeking through the clouds: additive HDR disc in front of the sphere
     let disc = mats.add(StandardMaterial {
@@ -174,7 +174,7 @@ fn spawn_sky(
         NotShadowCaster,
         NotShadowReceiver,
         RenderLayers::layer(0),
-        bevy::render::view::NoFrustumCulling,
+        bevy::camera::visibility::NoFrustumCulling,
     ));
 }
 

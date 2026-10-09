@@ -88,7 +88,7 @@ impl Plugin for AutoTestPlugin {
             std::time::Duration::from_secs_f32(1.0 / 30.0),
         ));
         app.insert_resource(AutoTest { dir, t: 0.0, step: 0, log, last_log: -1.0 })
-            .add_systems(PreUpdate, drive.after(bevy::input::InputSystem).run_if(in_state(GameState::Playing)));
+            .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -103,7 +103,7 @@ fn drive(
     rex: Query<(&Rex, &Transform)>,
     ptf: Query<&Transform, With<Player>>,
     arsenal: Res<Arsenal>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
     mut held: Local<(bool, bool)>,
 ) {
     // Fixed simulated step keeps the script deterministic even on a slow software renderer.
@@ -203,7 +203,7 @@ fn gallery(
     mut g: ResMut<Gallery>,
     mut arsenal: ResMut<Arsenal>,
     rigs: Res<crate::anim::Rigs>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     g.t += time.delta_secs();
     if g.i >= g.jobs.len() {

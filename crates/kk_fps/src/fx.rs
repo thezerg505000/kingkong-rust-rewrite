@@ -9,7 +9,7 @@ use crate::spec::WeaponId;
 use crate::spec::WEAPONS;
 use crate::world::VIEW_LAYER;
 use bevy::prelude::*;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use rand::Rng;
 
 // ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ pub fn rex_roar_shake(d: f32) -> ShakeParams {
 // Rumble: fn@0x00a69150(strength 0..255, duration*0.032 s)
 // ---------------------------------------------------------------------------
 
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct Rumble {
     /// 0..255 as in the game
     pub strength: f32,
@@ -167,7 +167,7 @@ impl Plugin for FxPlugin {
         app.init_resource::<CameraShake>()
             .init_resource::<RumbleLog>()
             .init_resource::<FxStats>()
-            .add_event::<Rumble>()
+            .add_message::<Rumble>()
             .add_systems(Startup, load_fx)
             .add_systems(
                 Update,
@@ -227,8 +227,8 @@ pub(crate) fn spawn_particle(
         Mesh3d(fx.quad.clone()),
         MeshMaterial3d(mat),
         Transform::from_translation(pos).with_scale(Vec3::splat(p.size.0)),
-        bevy::pbr::NotShadowCaster,
-        bevy::pbr::NotShadowReceiver,
+        bevy::light::NotShadowCaster,
+        bevy::light::NotShadowReceiver,
         layer,
         p,
     ));
@@ -241,11 +241,11 @@ pub(crate) fn rand_unit(rng: &mut impl Rng) -> Vec3 {
 #[allow(clippy::too_many_arguments)]
 fn on_gun(
     mut commands: Commands,
-    mut ev: EventReader<GunEvent>,
+    mut ev: MessageReader<GunEvent>,
     fx: Option<Res<FxAssets>>,
     mut mats: ResMut<Assets<StandardMaterial>>,
     mut stats: ResMut<FxStats>,
-    mut rumble: EventWriter<Rumble>,
+    mut rumble: MessageWriter<Rumble>,
     arms: Query<&ArmsRig, With<ArmsScene>>,
     arsenal: Res<crate::weapons::Arsenal>,
 ) {
@@ -291,8 +291,8 @@ fn on_gun(
                                     MeshMaterial3d(mat),
                                     Transform::from_translation(local + Vec3::new(0.0, -0.02 * i as f32, 0.0))
                                         .with_scale(Vec3::splat(p.size.0)),
-                                    bevy::pbr::NotShadowCaster,
-                                    bevy::pbr::NotShadowReceiver,
+                                    bevy::light::NotShadowCaster,
+                                    bevy::light::NotShadowReceiver,
                                     RenderLayers::layer(VIEW_LAYER),
                                     p,
                                 ))
@@ -354,7 +354,7 @@ fn on_gun(
                             intensity: 0.0,
                             range: 8.0,
                             color: Color::srgb(1.0, 0.75, 0.45),
-                            shadows_enabled: false,
+                            shadow_maps_enabled: false,
                             ..default()
                         },
                         // world only: lighting the viewmodel from 10 cm away burns it orange
@@ -466,11 +466,11 @@ struct RoarState {
 #[allow(clippy::too_many_arguments)]
 fn on_rex(
     mut commands: Commands,
-    mut ev: EventReader<RexEvent>,
+    mut ev: MessageReader<RexEvent>,
     fx: Option<Res<FxAssets>>,
     mut mats: ResMut<Assets<StandardMaterial>>,
     mut shake: ResMut<CameraShake>,
-    mut rumble: EventWriter<Rumble>,
+    mut rumble: MessageWriter<Rumble>,
     cam: Query<&GlobalTransform, With<MainCam>>,
     mut stats: ResMut<FxStats>,
     mut roar: Local<RoarState>,
@@ -595,11 +595,11 @@ fn apply_shake(time: Res<Time>, mut shake: ResMut<CameraShake>, mut cam: Query<&
 }
 
 fn rumble(
-    mut ev: EventReader<Rumble>,
+    mut ev: MessageReader<Rumble>,
     mut log: ResMut<RumbleLog>,
     time: Res<Time>,
     #[cfg(feature = "gamepad")] gamepads: Query<Entity, With<Gamepad>>,
-    #[cfg(feature = "gamepad")] mut out: EventWriter<bevy::input::gamepad::GamepadRumbleRequest>,
+    #[cfg(feature = "gamepad")] mut out: MessageWriter<bevy::input::gamepad::GamepadRumbleRequest>,
 ) {
     for r in ev.read() {
         log.0.push((time.elapsed_secs(), r.strength, r.duration, r.source));
@@ -685,7 +685,7 @@ fn update_particles(
                 c.alpha *= 0.12 + 0.88 * k * k * (3.0 - 2.0 * k);
             }
         }
-        if let Some(m) = mats.get_mut(&mat.0) {
+        if let Some(mut m) = mats.get_mut(&mat.0) {
             m.base_color = Color::from(c);
         }
     }

@@ -10,19 +10,18 @@
 //! Tint colour is not recovered: white [G].
 
 use crate::player::MainCam;
-use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
-use bevy::core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state;
-use bevy::ecs::query::QueryItem;
+use bevy::core_pipeline::schedule::{Core3d, Core3dSystems};
+use bevy::core_pipeline::tonemapping::tonemapping;
+use bevy::core_pipeline::FullscreenShader;
 use bevy::prelude::*;
-use bevy::render::extract_component::{
-    ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin, UniformComponentPlugin,
-};
-use bevy::render::render_graph::{NodeRunError, RenderGraphApp, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner};
+use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
 use bevy::render::render_resource::binding_types::{sampler, texture_2d, texture_depth_2d, uniform_buffer};
 use bevy::render::render_resource::*;
-use bevy::render::renderer::{RenderContext, RenderDevice};
+use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
+use bevy::render::uniform::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin};
 use bevy::render::view::{ViewDepthTexture, ViewTarget};
-use bevy::render::RenderApp;
+use bevy::render::{RenderApp, RenderStartup};
+use bevy::shader::ShaderDefVal;
 
 pub const GODRAY_POS: Vec3 = Vec3::new(35.0, 7.1, -46.4);
 pub const GODRAY_RAY: Vec3 = Vec3::new(-0.595, 0.0, -0.801);
@@ -37,6 +36,8 @@ pub struct GodRay {
     pub zoom_c: f32,
     pub factor: f32,
     pub tint: Vec4,
+    /// xy: depth uv scale (FSR renders the main pass into the top-left corner of the depth buffer)
+    pub depth_scale: Vec4,
 }
 
 #[derive(Component)]
@@ -74,21 +75,19 @@ impl Plugin for GodRayPlugin {
             .add_systems(Update, update_godray);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
-            .add_render_graph_node::<ViewNodeRunner<GodRayNode>>(Core3d, GodRayLabel)
-            .add_render_graph_edges(Core3d, (Node3d::DepthOfField, GodRayLabel, Node3d::Tonemapping));
-    }
-    fn finish(&self, app: &mut App) {
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
-        render_app.init_resource::<GodRayPipeline>();
+            .add_systems(RenderStartup, init_godray_pipeline)
+            .add_systems(Core3d, godray_pass.before(tonemapping).in_set(Core3dSystems::PostProcess));
     }
 }
 
 fn update_godray(
-    mut cams: Query<(&Camera, &GlobalTransform, &mut GodRay), With<MainCam>>,
+    mut cams: Query<(&Camera, &GlobalTransform, &mut GodRay, Option<&crate::graphics::FsrUpscale>), With<MainCam>>,
     sources: Query<&GodRaySource>,
     mut stats: ResMut<GodRayStats>,
 ) {
-    let Ok((cam, gt, mut gr)) = cams.single_mut() else { return };
+    let Ok((cam, gt, mut gr, fsr)) = cams.single_mut() else { return };
+    let ds = fsr.map(|f| f.scale.clamp(0.25, 1.0)).unwrap_or(1.0);
+    gr.depth_scale = Vec4::new(ds, ds, 0.0, 0.0);
     let Ok(src) = sources.single() else {
         gr.factor = 0.0;
         return;
@@ -112,130 +111,103 @@ fn update_godray(
     stats.fade = fade;
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct GodRayLabel;
-
-#[derive(Default)]
-struct GodRayNode;
-
-impl ViewNode for GodRayNode {
-    type ViewQuery = (&'static ViewTarget, Option<&'static ViewDepthTexture>, &'static DynamicUniformIndex<GodRay>);
-
-    fn run(
-        &self,
-        _graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext,
-        (view_target, prepass, uniform_index): QueryItem<Self::ViewQuery>,
-        world: &World,
-    ) -> Result<(), NodeRunError> {
-        let pipeline_res = world.resource::<GodRayPipeline>();
-        let cache = world.resource::<PipelineCache>();
-        let Some(pipeline) = cache.get_render_pipeline(pipeline_res.pipeline_id) else { return Ok(()) };
-        let uniforms = world.resource::<ComponentUniforms<GodRay>>();
-        let Some(binding) = uniforms.uniforms().binding() else { return Ok(()) };
-        let depth = prepass.map(|d| d.view());
-        if !pipeline_res.no_depth && depth.is_none() {
-            return Ok(());
-        }
-        let post = view_target.post_process_write();
-        let bind_group = if pipeline_res.no_depth {
-            render_context.render_device().create_bind_group(
-                "godray_bind_group",
-                &pipeline_res.layout,
-                &BindGroupEntries::sequential((post.source, &pipeline_res.sampler, binding.clone())),
-            )
-        } else {
-            render_context.render_device().create_bind_group(
-                "godray_bind_group",
-                &pipeline_res.layout,
-                &BindGroupEntries::sequential((post.source, &pipeline_res.sampler, depth.unwrap(), binding.clone())),
-            )
-        };
-        let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("godray_pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post.destination,
-                resolve_target: None,
-                ops: Operations::default(),
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        pass.set_render_pipeline(pipeline);
-        pass.set_bind_group(0, &bind_group, &[uniform_index.index()]);
-        pass.draw(0..3, 0..1);
-        Ok(())
+fn godray_pass(
+    view: ViewQuery<(&ViewTarget, Option<&ViewDepthTexture>, &DynamicUniformIndex<GodRay>)>,
+    pipeline_res: Option<Res<GodRayPipeline>>,
+    cache: Res<PipelineCache>,
+    uniforms: Res<ComponentUniforms<GodRay>>,
+    mut ctx: RenderContext,
+) {
+    let Some(pipeline_res) = pipeline_res else { return };
+    let (view_target, prepass, uniform_index) = view.into_inner();
+    let Some(pipeline) = cache.get_render_pipeline(pipeline_res.pipeline_id) else { return };
+    let Some(binding) = uniforms.uniforms().binding() else { return };
+    let depth = prepass.map(|d| d.view());
+    if !pipeline_res.no_depth && depth.is_none() {
+        return;
     }
+    let post = view_target.post_process_write();
+    let layout = cache.get_bind_group_layout(&pipeline_res.layout);
+    let bind_group = if pipeline_res.no_depth {
+        ctx.render_device().create_bind_group("godray_bind_group", &layout, &BindGroupEntries::sequential((post.source, &pipeline_res.sampler, binding.clone())))
+    } else {
+        ctx.render_device().create_bind_group(
+            "godray_bind_group",
+            &layout,
+            &BindGroupEntries::sequential((post.source, &pipeline_res.sampler, depth.unwrap(), binding.clone())),
+        )
+    };
+    let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
+        label: Some("godray_pass"),
+        color_attachments: &[Some(RenderPassColorAttachment { view: post.destination, depth_slice: None, resolve_target: None, ops: Operations::default() })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, &bind_group, &[uniform_index.index()]);
+    pass.draw(0..3, 0..1);
 }
 
 #[derive(Resource)]
 struct GodRayPipeline {
     no_depth: bool,
-    layout: BindGroupLayout,
+    layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     pipeline_id: CachedRenderPipelineId,
 }
 
-impl FromWorld for GodRayPipeline {
-    fn from_world(world: &mut World) -> Self {
-        let device = world.resource::<RenderDevice>();
-        let no_depth = no_depth();
-        let layout = if no_depth {
-            device.create_bind_group_layout(
-                "godray_layout",
-                &BindGroupLayoutEntries::sequential(
-                    ShaderStages::FRAGMENT,
-                    (
-                        texture_2d(TextureSampleType::Float { filterable: true }),
-                        sampler(SamplerBindingType::Filtering),
-                        uniform_buffer::<GodRay>(true),
-                    ),
+fn init_godray_pipeline(
+    mut commands: Commands,
+    device: Res<RenderDevice>,
+    fullscreen: Res<FullscreenShader>,
+    server: Res<AssetServer>,
+    cache: Res<PipelineCache>,
+) {
+    let no_depth = no_depth();
+    let layout = if no_depth {
+        BindGroupLayoutDescriptor::new(
+            "godray_layout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::FRAGMENT,
+                (texture_2d(TextureSampleType::Float { filterable: true }), sampler(SamplerBindingType::Filtering), uniform_buffer::<GodRay>(true)),
+            ),
+        )
+    } else {
+        BindGroupLayoutDescriptor::new(
+            "godray_layout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::FRAGMENT,
+                (
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
+                    texture_depth_2d(),
+                    uniform_buffer::<GodRay>(true),
                 ),
-            )
-        } else {
-            device.create_bind_group_layout(
-                "godray_layout",
-                &BindGroupLayoutEntries::sequential(
-                    ShaderStages::FRAGMENT,
-                    (
-                        texture_2d(TextureSampleType::Float { filterable: true }),
-                        sampler(SamplerBindingType::Filtering),
-                        texture_depth_2d(),
-                        uniform_buffer::<GodRay>(true),
-                    ),
-                ),
-            )
-        };
-        let mut defs: Vec<ShaderDefVal> = vec![];
-        if no_depth { defs.push("NO_DEPTH".into()); }
-        if debug_mode().contains("pass") { defs.push("PASSTHROUGH".into()); }
-        let sampler = device.create_sampler(&SamplerDescriptor {
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            ..default()
-        });
-        let shader = world.load_asset("embedded://kk_fps/godray.wgsl");
-        let pipeline_id = world.resource_mut::<PipelineCache>().queue_render_pipeline(RenderPipelineDescriptor {
-            label: Some("godray_pipeline".into()),
-            layout: vec![layout.clone()],
-            vertex: fullscreen_shader_vertex_state(),
-            fragment: Some(FragmentState {
-                shader,
-                shader_defs: defs,
-                entry_point: "fragment".into(),
-                targets: vec![Some(ColorTargetState {
-                    format: ViewTarget::TEXTURE_FORMAT_HDR,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-            }),
-            primitive: PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
-            push_constant_ranges: vec![],
-            zero_initialize_workgroup_memory: false,
-        });
-        Self { no_depth, layout, sampler, pipeline_id }
+            ),
+        )
+    };
+    let mut defs: Vec<ShaderDefVal> = vec![];
+    if no_depth {
+        defs.push("NO_DEPTH".into());
     }
+    if debug_mode().contains("pass") {
+        defs.push("PASSTHROUGH".into());
+    }
+    let sampler = device.create_sampler(&SamplerDescriptor { mag_filter: FilterMode::Linear, min_filter: FilterMode::Linear, ..default() });
+    let shader = server.load("embedded://kk_fps/godray.wgsl");
+    let pipeline_id = cache.queue_render_pipeline(RenderPipelineDescriptor {
+        label: Some("godray_pipeline".into()),
+        layout: vec![layout.clone()],
+        vertex: fullscreen.to_vertex_state(),
+        fragment: Some(FragmentState {
+            shader,
+            shader_defs: defs,
+            entry_point: Some("fragment".into()),
+            targets: vec![Some(ColorTargetState { format: ViewTarget::TEXTURE_FORMAT_HDR, blend: None, write_mask: ColorWrites::ALL })],
+        }),
+        ..default()
+    });
+    commands.insert_resource(GodRayPipeline { no_depth, layout, sampler, pipeline_id });
 }

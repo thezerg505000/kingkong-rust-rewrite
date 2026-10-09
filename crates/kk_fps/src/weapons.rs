@@ -11,7 +11,7 @@ use crate::spec::*;
 use crate::world::{Arena, VIEW_LAYER};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use kk_mechanics::weapons::{self as mech, Ammo};
 use rand::Rng;
 use std::f32::consts::FRAC_PI_2;
@@ -106,7 +106,7 @@ pub struct RexHitbox {
     pub root: Vec3,
 }
 
-#[derive(Event)]
+#[derive(Message)]
 #[allow(dead_code)] // point/bone kept for hit reactions and debugging
 pub struct RexDamage {
     pub amount: f32,
@@ -127,7 +127,7 @@ impl Plugin for WeaponsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Arsenal>()
             .init_resource::<RexHitbox>()
-            .add_event::<RexDamage>()
+            .add_message::<RexDamage>()
             .add_systems(
                 Update,
                 (weapon_input, mount_weapon, drive_arms)
@@ -165,8 +165,8 @@ fn weapon_input(
     cam: Query<&GlobalTransform, With<MainCam>>,
     arena: Res<Arena>,
     hitbox: Res<RexHitbox>,
-    mut dmg: EventWriter<RexDamage>,
-    mut gun: EventWriter<crate::events::GunEvent>,
+    mut dmg: MessageWriter<RexDamage>,
+    mut gun: MessageWriter<crate::events::GunEvent>,
     (rigs, spheres): (Res<Rigs>, Option<Res<crate::creatures::CreatureSpheres>>),
     arms: Query<&ArmsRig, With<ArmsScene>>,
     gts: Query<&GlobalTransform>,
@@ -408,7 +408,7 @@ fn mount_weapon(
     let e = commands
         .spawn((
             Name::new(WEAPONS[w].name),
-            SceneRoot(rigs.weapon_scenes[w].clone()),
+            WorldAssetRoot(rigs.weapon_scenes[w].clone()),
             Transform::from_rotation(Quat::from_rotation_x(FRAC_PI_2)),
         ))
         .observe(on_weapon_ready)
@@ -419,27 +419,27 @@ fn mount_weapon(
 }
 
 fn on_weapon_ready(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::world_serialization::WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     meshes: Query<(), With<Mesh3d>>,
     mat_q: Query<&MeshMaterial3d<StandardMaterial>>,
     mut mats: ResMut<Assets<StandardMaterial>>,
 ) {
-    for e in children.iter_descendants(trigger.target()) {
+    for e in children.iter_descendants(trigger.entity) {
         if meshes.contains(e) {
             // oiled blued steel: glossier than the exported 0.85 roughness (the PC shader has a
             // spec map per weapon) [G]
-            if let Some(m) = mat_q.get(e).ok().and_then(|h| mats.get_mut(&h.0)) {
+            if let Some(mut m) = mat_q.get(e).ok().and_then(|h| mats.get_mut(&h.0)) {
                 m.perceptual_roughness = 0.6;
                 m.reflectance = 0.5;
             }
             commands.entity(e).insert((
                 RenderLayers::layer(VIEW_LAYER),
-                bevy::pbr::NotShadowCaster,
-                bevy::pbr::NotShadowReceiver,
+                bevy::light::NotShadowCaster,
+                bevy::light::NotShadowReceiver,
                 // skinned AABBs stay at the bind pose; the animated arms sit ~0.6 m higher
-                bevy::render::view::NoFrustumCulling,
+                bevy::camera::visibility::NoFrustumCulling,
             ));
         }
     }

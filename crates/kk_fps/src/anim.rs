@@ -53,9 +53,9 @@ pub struct Rigs {
     pub rex: Rig,
     /// trex_kt.glb when present (KT clips merged into `rex`)
     pub rex_kt: Option<Handle<Gltf>>,
-    pub arms_scene: Handle<Scene>,
-    pub rex_scene: Handle<Scene>,
-    pub weapon_scenes: Vec<Handle<Scene>>,
+    pub arms_scene: Handle<bevy::world_serialization::WorldAsset>,
+    pub rex_scene: Handle<bevy::world_serialization::WorldAsset>,
+    pub weapon_scenes: Vec<Handle<bevy::world_serialization::WorldAsset>>,
     pub weapon_gltfs: Vec<Handle<Gltf>>,
     /// original level 03E, when exported (research/pc/game_assets/level03e/level03e.glb)
     pub level: Option<Handle<Gltf>>,
@@ -85,10 +85,10 @@ impl Plugin for AnimPlugin {
 fn start_loading(mut rigs: ResMut<Rigs>, assets: Res<AssetServer>) {
     rigs.arms.gltf = assets.load(ARMS_GLB);
     rigs.rex.gltf = assets.load(REX_GLB);
-    if crate::asset_dir().join(REX_KT_GLB).exists() {
+    if crate::mods::resolve(REX_KT_GLB).exists() {
         rigs.rex_kt = Some(assets.load(REX_KT_GLB));
     }
-    let lvl = crate::asset_dir().join(crate::scene::level_glb());
+    let lvl = crate::mods::resolve(crate::scene::level_glb());
     if lvl.exists() && std::env::var("KK_STAND_IN").is_err() {
         rigs.level = Some(assets.load(crate::scene::level_glb()));
     }

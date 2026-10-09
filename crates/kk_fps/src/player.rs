@@ -10,7 +10,7 @@ use crate::spec::*;
 use crate::world::{Arena, VIEW_LAYER};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 use kk_mechanics::jack as jk;
 use kk_mechanics::wounds::{HitOutcome, WoundState, Wounds};
@@ -85,7 +85,7 @@ pub struct ViewCam;
 /// Parent of the arms scene; carries procedural bob / ADS / swap offsets.
 #[derive(Component)]
 pub struct ViewModel;
-/// The arms SceneRoot plus the rig entities found once it spawned.
+/// The arms WorldAssetRoot plus the rig entities found once it spawned.
 #[derive(Component)]
 pub struct ArmsScene;
 #[derive(Component)]
@@ -144,10 +144,8 @@ fn spawn_player(mut commands: Commands, rigs: Res<Rigs>, arena: Res<Arena>) {
                     .into(),
                 ..default()
             },
-            Camera {
-                hdr: true,
-                ..default()
-            },
+            Camera::default(),
+            bevy::camera::Hdr,
             Projection::from(PerspectiveProjection {
                 fov: vertical_fov(FOV_DEFAULT),
                 near: 0.05,
@@ -185,10 +183,10 @@ fn spawn_player(mut commands: Commands, rigs: Res<Rigs>, arena: Res<Arena>) {
             Camera3d::default(),
             Camera {
                 order: 1,
-                hdr: true,
                 clear_color: ClearColorConfig::None,
                 ..default()
             },
+            bevy::camera::Hdr,
             Projection::from(PerspectiveProjection {
                 fov: vertical_fov(FOV_DEFAULT),
                 near: 0.01,
@@ -224,7 +222,7 @@ fn spawn_player(mut commands: Commands, rigs: Res<Rigs>, arena: Res<Arena>) {
         .spawn((
             Name::new("ArmsScene"),
             ArmsScene,
-            SceneRoot(arms_scene),
+            WorldAssetRoot(arms_scene),
             Transform::from_rotation(Quat::from_rotation_y(PI)),
         ))
         .observe(on_arms_ready)
@@ -233,7 +231,7 @@ fn spawn_player(mut commands: Commands, rigs: Res<Rigs>, arena: Res<Arena>) {
 }
 
 fn on_arms_ready(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::world_serialization::WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -241,7 +239,7 @@ fn on_arms_ready(
     players: Query<Entity, With<AnimationPlayer>>,
     rigs: Res<Rigs>,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let mut cam_bone = None;
     let mut socket = None;
     for e in children.iter_descendants(root) {
@@ -255,10 +253,10 @@ fn on_arms_ready(
         if meshes.contains(e) {
             commands.entity(e).insert((
                 RenderLayers::layer(VIEW_LAYER),
-                bevy::pbr::NotShadowCaster,
-                bevy::pbr::NotShadowReceiver,
+                bevy::light::NotShadowCaster,
+                bevy::light::NotShadowReceiver,
                 // skinned AABBs stay at the bind pose; the animated arms sit ~0.6 m higher
-                bevy::render::view::NoFrustumCulling,
+                bevy::camera::visibility::NoFrustumCulling,
             ));
         }
     }
@@ -278,25 +276,25 @@ fn on_arms_ready(
 }
 
 fn cursor_grab(
-    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut windows: Query<&mut bevy::window::CursorOptions, With<PrimaryWindow>>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
     let Ok(mut w) = windows.single_mut() else { return };
-    if mouse.just_pressed(MouseButton::Left) && w.cursor_options.grab_mode == CursorGrabMode::None {
-        w.cursor_options.grab_mode = CursorGrabMode::Locked;
-        w.cursor_options.visible = false;
+    if mouse.just_pressed(MouseButton::Left) && w.grab_mode == CursorGrabMode::None {
+        w.grab_mode = CursorGrabMode::Locked;
+        w.visible = false;
     }
     if keys.just_pressed(KeyCode::Escape) {
-        w.cursor_options.grab_mode = CursorGrabMode::None;
-        w.cursor_options.visible = true;
+        w.grab_mode = CursorGrabMode::None;
+        w.visible = true;
     }
 }
 
 fn look(
     time: Res<Time>,
     motion: Res<AccumulatedMouseMotion>,
-    windows: Query<&Window, With<PrimaryWindow>>,
+    windows: Query<&bevy::window::CursorOptions, With<PrimaryWindow>>,
     gamepads: Query<&Gamepad>,
     mut q: Query<(&mut Player, &mut Transform), Without<MainCam>>,
     mut cam: Query<(&mut Transform, &mut Projection), With<MainCam>>,
@@ -307,7 +305,7 @@ fn look(
     let dt = time.delta_secs();
     let grabbed = windows
         .single()
-        .map(|w| w.cursor_options.grab_mode != CursorGrabMode::None)
+        .map(|w| w.grab_mode != CursorGrabMode::None)
         .unwrap_or(false);
     if p.alive() {
         let mode = jk::LookMode { aim: p.aiming, run: p.run, ..Default::default() };
@@ -363,7 +361,7 @@ fn movement(
     gamepads: Query<&Gamepad>,
     arena: Res<Arena>,
     mut q: Query<(&mut Player, &mut Transform)>,
-    mut steps: EventWriter<crate::events::JackEvent>,
+    mut steps: MessageWriter<crate::events::JackEvent>,
 ) {
     let Ok((mut p, mut tf)) = q.single_mut() else { return };
     let dt = time.delta_secs();
@@ -440,7 +438,7 @@ fn movement(
 fn wounds(
     time: Res<Time>,
     mut q: Query<&mut Player>,
-    mut ev: EventWriter<crate::events::JackEvent>,
+    mut ev: MessageWriter<crate::events::JackEvent>,
     mut last: Local<Option<WoundState>>,
 ) {
     let Ok(mut p) = q.single_mut() else { return };

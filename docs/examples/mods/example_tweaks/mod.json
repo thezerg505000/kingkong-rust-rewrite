@@ -1,0 +1,7 @@
+{
+  "name": "Example tweaks",
+  "version": "1.0",
+  "author": "KongPS2Recompiled",
+  "description": "Shows the mod format: lighter fog and a little more sun. Contains no game files. Copy this folder into mods/ next to the game to try it.",
+  "priority": 0
+}

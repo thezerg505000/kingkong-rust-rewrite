@@ -26,7 +26,7 @@ pub struct SoundDefs(pub HashMap<String, SoundDef>);
 pub struct SfxLog(pub Vec<(f32, String)>);
 
 /// A request to play one sound definition. `pos` = world position (None = 2D / on Jack).
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct PlaySfx {
     pub def: &'static str,
     pub pos: Option<Vec3>,
@@ -59,18 +59,18 @@ impl Plugin for SfxPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(load_defs())
             .init_resource::<SfxLog>()
-            .add_event::<PlaySfx>()
+            .add_message::<PlaySfx>()
             .add_systems(
                 Update,
                 (map_events, play).chain().after(crate::rex::RexSet).run_if(in_state(GameState::Playing)),
             );
-        #[cfg(feature = "audio")]
+        #[cfg(feature = "audio_engine")]
         app.init_resource::<audio::Loaded>();
     }
 }
 
 fn load_defs() -> SoundDefs {
-    let path = crate::asset_dir().join("sound_defs.json");
+    let path = crate::mods::resolve("sound_defs.json");
     let mut out = HashMap::new();
     match std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) {
         Some(v) => {
@@ -100,10 +100,10 @@ struct LoopState {
 #[allow(clippy::too_many_arguments)]
 fn map_events(
     time: Res<Time>,
-    mut gun: EventReader<GunEvent>,
-    mut rex: EventReader<RexEvent>,
-    mut jack: EventReader<JackEvent>,
-    mut out: EventWriter<PlaySfx>,
+    mut gun: MessageReader<GunEvent>,
+    mut rex: MessageReader<RexEvent>,
+    mut jack: MessageReader<JackEvent>,
+    mut out: MessageWriter<PlaySfx>,
     mut st: Local<LoopState>,
 ) {
     let now = time.elapsed_secs();
@@ -199,15 +199,17 @@ pub fn distance_gain(d: f32) -> f32 {
 }
 
 fn play(
-    mut ev: EventReader<PlaySfx>,
+    mut ev: MessageReader<PlaySfx>,
     defs: Res<SoundDefs>,
     mut log: ResMut<SfxLog>,
     time: Res<Time>,
     cam: Query<&GlobalTransform, With<MainCam>>,
-    #[cfg(feature = "audio")] mut commands: Commands,
-    #[cfg(feature = "audio")] mut loaded: ResMut<audio::Loaded>,
-    #[cfg(feature = "audio")] assets: Res<AssetServer>,
-    #[cfg(feature = "audio")] tommy: Query<Entity, With<audio::TommyLoop>>,
+    #[cfg(feature = "audio_engine")] mut commands: Commands,
+    #[cfg(feature = "audio_engine")] mut loaded: ResMut<audio::Loaded>,
+    #[cfg(feature = "audio_engine")] assets: Res<AssetServer>,
+    #[cfg(feature = "audio_engine")] tommy: Query<Entity, With<audio::TommyLoop>>,
+    #[cfg(feature = "audio_engine")] settings: Res<crate::audio_engine::AudioSettings>,
+    #[cfg(feature = "audio_engine")] reverb: Res<crate::audio_engine::backend::ReverbBus>,
 ) {
     let listener = cam.single().map(|g| g.translation()).unwrap_or(Vec3::ZERO);
     for e in ev.read() {
@@ -220,47 +222,52 @@ fn play(
         }
         let dist = e.pos.map(|p| p.distance(listener)).unwrap_or(0.0);
         let gain = def.volume * e.gain * distance_gain(dist);
-        #[cfg(feature = "audio")]
-        audio::spawn(&mut commands, &mut loaded, &assets, &tommy, e.def, def, gain);
-        #[cfg(not(feature = "audio"))]
+        #[cfg(feature = "audio_engine")]
+        {
+            // the remaster engine attenuates positional voices itself
+            let g = if settings.remaster() && e.pos.is_some() { def.volume * e.gain } else { gain };
+            audio::spawn(&mut commands, &mut loaded, &assets, &tommy, &settings, &reverb, e.def, def, g, e.pos);
+        }
+        #[cfg(not(feature = "audio_engine"))]
         let _ = gain;
     }
 }
 
-#[cfg(feature = "audio")]
+#[cfg(feature = "audio_engine")]
 mod audio {
     use super::SoundDef;
-    use bevy::audio::{PlaybackMode, PlaybackSettings, Volume};
+    use crate::audio_engine::{backend, AudioSettings};
     use bevy::prelude::*;
+    use bevy_seedling::prelude::AudioSample;
     use rand::Rng;
     use std::collections::HashMap;
 
     #[derive(Resource, Default)]
-    pub struct Loaded(pub HashMap<String, Handle<AudioSource>>);
+    pub struct Loaded(pub HashMap<String, Handle<AudioSample>>);
 
     #[derive(Component)]
     pub struct TommyLoop;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         commands: &mut Commands,
         loaded: &mut Loaded,
         assets: &AssetServer,
         tommy: &Query<Entity, With<TommyLoop>>,
+        settings: &AudioSettings,
+        reverb: &backend::ReverbBus,
         name: &str,
         def: &SoundDef,
         gain: f32,
+        pos: Option<Vec3>,
     ) {
         let file = &def.files[rand::thread_rng().gen_range(0..def.files.len())];
         let h = loaded.0.entry(file.clone()).or_insert_with(|| assets.load(file.clone())).clone();
         // pitch variation of ±3% so repeated shots do not sound identical [G]
         let speed = rand::thread_rng().gen_range(0.97..1.03);
         if name == "Jack Tommygun shoot loop A" {
-            commands.spawn((
-                TommyLoop,
-                AudioPlayer(h),
-                PlaybackSettings { mode: PlaybackMode::Loop, ..PlaybackSettings::LOOP }
-                    .with_volume(Volume::Linear(gain)),
-            ));
+            let e = backend::spawn_voice(commands, settings, reverb, h, gain, 1.0, None, true);
+            commands.entity(e).insert(TommyLoop);
             return;
         }
         if name == "Jack Tommygun shoot end" {
@@ -268,9 +275,6 @@ mod audio {
                 commands.entity(e).despawn();
             }
         }
-        commands.spawn((
-            AudioPlayer(h),
-            PlaybackSettings::DESPAWN.with_volume(Volume::Linear(gain)).with_speed(speed),
-        ));
+        backend::spawn_voice(commands, settings, reverb, h, gain, speed, pos, false);
     }
 }

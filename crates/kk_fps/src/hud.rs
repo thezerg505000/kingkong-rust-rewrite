@@ -28,12 +28,12 @@ pub struct HudPlugin;
 
 /// F8: put the whole slice back (Jack, V-Rex, raptors/compies, Kong fight, destructible wall, spears,
 /// bone piles). Nothing respawns by itself.
-#[derive(Event, Clone, Copy, Debug, Default)]
+#[derive(Message, Clone, Copy, Debug, Default)]
 pub struct RespawnAll;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<RespawnAll>()
+        app.add_message::<RespawnAll>()
             .add_systems(OnEnter(GameState::Playing), spawn_hud)
             .add_systems(
                 Update,
@@ -42,7 +42,7 @@ impl Plugin for HudPlugin {
     }
 }
 
-fn respawn_key(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut out: EventWriter<RespawnAll>) {
+fn respawn_key(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut out: MessageWriter<RespawnAll>) {
     // (pad Select is the Jack <-> Kong switch: respawn-all is D-pad up)
     if keys.just_pressed(KeyCode::F8) || gamepads.iter().any(|g| g.just_pressed(GamepadButton::DPadUp)) {
         info!("F8: respawning everything");
@@ -70,7 +70,8 @@ fn spawn_overlays(commands: &mut Commands, images: &mut Assets<Image>) {
     let vig = images.add(radial_image(256, |r| [0, 0, 0, ((r * r * 0.22).min(0.25) * 255.0) as u8]));
     commands.spawn((
         Overlay3d,
-        ImageNode::new(vig),
+        // stretched over the whole window (Bevy 0.17+ keeps the image's aspect ratio by default)
+        ImageNode::new(vig).with_mode(bevy::ui::widget::NodeImageMode::Stretch),
         Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
         GlobalZIndex(-2),
     ));
@@ -120,7 +121,7 @@ fn spawn_overlays(commands: &mut Commands, images: &mut Assets<Image>) {
 
 fn spawn_hud(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     spawn_overlays(&mut commands, &mut images);
-    let font = |s: f32| TextFont { font_size: s, ..default() };
+    let font = |s: f32| TextFont { font_size: FontSize::Px(s), ..default() };
     // crosshair
     commands.spawn((
         Node {
@@ -145,7 +146,7 @@ fn spawn_hud(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         Text::new(""),
         font(26.0),
         TextColor(Color::srgb(0.95, 0.92, 0.85)),
-        TextLayout::new_with_justify(JustifyText::Right),
+        TextLayout::justify(Justify::Right),
     ));
     commands.spawn((
         DebugText,
@@ -204,7 +205,7 @@ fn spawn_hud(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         Text::new("Click to capture the mouse"),
         font(30.0),
         TextColor(Color::srgb(1.0, 0.95, 0.9)),
-        TextLayout::new_with_justify(JustifyText::Center),
+        TextLayout::justify(Justify::Center),
     ));
 }
 
@@ -217,7 +218,7 @@ fn update_hud(
     rex: Query<(&Rex, &Transform)>,
     arms: Query<&RigPlayer, With<ArmsScene>>,
     rex_rp: Query<&RigPlayer, With<RexScene>>,
-    windows: Query<&Window>,
+    windows: Query<&bevy::window::CursorOptions>,
     mut hud: Query<&mut Text, (With<HudText>, Without<DebugText>, Without<CenterText>)>,
     mut dbg: Query<&mut Text, (With<DebugText>, Without<HudText>, Without<CenterText>)>,
     mut center: Query<&mut Text, (With<CenterText>, Without<HudText>, Without<DebugText>)>,
@@ -282,7 +283,7 @@ fn update_hud(
     }
     let grabbed = windows
         .single()
-        .map(|w| w.cursor_options.grab_mode != bevy::window::CursorGrabMode::None)
+        .map(|w| w.grab_mode != bevy::window::CursorGrabMode::None)
         .unwrap_or(false);
     if let Ok(mut t) = center.single_mut() {
         t.0 = if !p.alive() {
@@ -320,7 +321,7 @@ fn update_hud(
 fn respawn(
     keys: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
-    mut all: EventReader<RespawnAll>,
+    mut all: MessageReader<RespawnAll>,
     mut players: Query<(&mut Player, &mut Transform), Without<Rex>>,
     mut rex: Query<(&mut Rex, &mut Transform), Without<Player>>,
     settings: Res<RexSettings>,

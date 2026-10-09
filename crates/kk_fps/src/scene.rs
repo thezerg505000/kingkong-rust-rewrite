@@ -24,7 +24,7 @@ pub fn swamp_level() -> Option<Swamp> {
             _ => {}
         }
         if batch.starts_with("b10") {
-            let has05 = crate::asset_dir().join("level05c/level05c.glb").exists();
+            let has05 = crate::mods::resolve("level05c/level05c.glb").exists();
             return Some(if has05 { Swamp::L05C } else { Swamp::L07D });
         }
         None

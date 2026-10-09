@@ -15,7 +15,7 @@ use crate::spec::*;
 use crate::testarea::ShowLabels;
 use crate::weapons::Arsenal;
 use bevy::prelude::*;
-use bevy::render::primitives::Aabb;
+use bevy::camera::primitives::Aabb;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use kk_mechanics::creatures::raptor::{self as rp, RaptorState, Reaction};
 use serde_json::{json, Value};
@@ -275,7 +275,7 @@ impl Plugin for TBatchPlugin {
                 done: false,
                 frames: 0,
             })
-            .add_systems(PreUpdate, drive.after(bevy::input::InputSystem).run_if(in_state(GameState::Playing)))
+            .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).run_if(in_state(GameState::Playing)))
             .add_systems(Update, (sampler, record).chain().after(CreatureSet).run_if(in_state(GameState::Playing)));
     }
 }
@@ -299,7 +299,7 @@ fn drive(
     gts: Query<&GlobalTransform>,
     mut anim: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     log: Res<CreatureLog>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     // release one-frame presses
     if keys.pressed(KeyCode::KeyR) && !keys.just_pressed(KeyCode::KeyR) {
@@ -640,7 +640,7 @@ fn write_report(r: &TRunner, log: &CreatureLog, assets: &CreatureAssets, players
 }
 
 fn manifest() -> Value {
-    std::fs::read_to_string(crate::asset_dir().join("creatures/manifest.json"))
+    std::fs::read_to_string(crate::mods::resolve("creatures/manifest.json"))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or(Value::Null)

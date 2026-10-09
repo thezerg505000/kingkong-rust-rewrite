@@ -111,7 +111,7 @@ pub fn kong_camera(
     jack: Query<&Transform, (With<Player>, Without<MainCam>)>,
     mut cam: Query<(&mut Transform, &mut Projection, &GlobalTransform), With<MainCam>>,
     motion: Res<AccumulatedMouseMotion>,
-    windows: Query<&Window, With<PrimaryWindow>>,
+    windows: Query<&bevy::window::CursorOptions, With<PrimaryWindow>>,
     gamepads: Query<&Gamepad>,
 ) {
     let c = &mut *ctl;
@@ -121,7 +121,7 @@ pub fn kong_camera(
     let (Ok(jt), Ok((mut ctf, mut proj, cgt))) = (jack.single(), cam.single_mut()) else { return };
     let dt = time.delta_secs().min(0.1);
     let cinema = c.cinematic && !c.player_control;
-    let grabbed = windows.single().map(|w| w.cursor_options.grab_mode != CursorGrabMode::None).unwrap_or(false);
+    let grabbed = windows.single().map(|w| w.grab_mode != CursorGrabMode::None).unwrap_or(false);
 
     // manual orbit, recentres slowly
     let mut orbit_in = 0.0;
@@ -293,7 +293,7 @@ pub fn kong_camera(
     let world = Transform::from_translation(eye).looking_at(c.cam.look, Vec3::Y);
     // the camera is a child of Jack (frozen): express the world pose in his frame
     let jm = Mat4::from_scale_rotation_translation(Vec3::ONE, jt.rotation, jt.translation);
-    *ctf = Transform::from_matrix(jm.inverse() * world.compute_matrix());
+    *ctf = Transform::from_matrix(jm.inverse() * world.to_matrix());
     // camera-relative stick for the pad
     let fwd = world.forward().as_vec3();
     c.cam_fwd = Vec2::new(fwd.x, fwd.z).normalize_or(Vec2::new(0.0, -1.0));

@@ -17,12 +17,14 @@ Early but playable.
 | **Kong slice** (level 05C marsh, "Kong vs first T-Rex") | Switch Jack ⇄ Kong with **Tab**. Kong AI fights the rex using his full move set: punch chain, repel, downward strike, counter lunge, grab / strike / throw, chest pound and fury, KO and the jaw-break finisher. Includes the shell fur ported from the engine's fur modifier, rain, fog and water splashes |
 | **Creatures** | Raptors, compies, brontosaurus, crab, bats, scolopendras, spider, swamp crawler; a flat test area for batches |
 | **Game logic** (`kk_mechanics`) | About 200 unit tests; a 240-entry mechanics ledger (`spec/`) |
+| **Remaster options** | F10 menu: AMD FSR 1.0 / NVIDIA DLSS upscaling, SSAO, sky-probe global illumination, hardware ray tracing (Bevy Solari), contact shadows, filmic tonemapping, bloom, depth of field, motion blur, vignette; a Firewheel audio engine with HRTF 3D sound, reverb and occlusion; a mod loader. See [`docs/REMASTER.md`](docs/REMASTER.md) and [`docs/MODDING.md`](docs/MODDING.md) |
 | **Asset rebuild** (`kk_extract`) | Rebuilds the 03E level, characters, creatures, sounds and FX from the user's game files. *Levels 05C/07D are not yet rebuilt by the extractor* (see `docs/HANDOFF.md`) |
 
 ## Requirements
 
 - Your own copy of **Peter Jackson's King Kong – Gamer's Edition (PC)**. The launcher needs `KKMaps.bf`, `KKTextures.bf` and `Sound_Common.bf` from the install folder.
-- [Rust](https://rustup.rs/) (stable, 2021 edition) and a GPU with Vulkan, DirectX 12 or Metal.
+- [Rust](https://rustup.rs/) 1.95 or newer (Bevy 0.19) and a GPU with Vulkan, DirectX 12 or Metal.
+- Optional: a ray-tracing GPU (NVIDIA RTX, AMD RDNA2+, Intel Arc) for the ray-traced lighting; for DLSS an NVIDIA RTX GPU plus the DLSS SDK, Vulkan SDK and clang at build time (`scripts\windows\build_dlss.bat`, see `docs/REMASTER.md`).
 - Windows 10/11 is the main target. Linux builds too; you need `libasound2-dev` and `libudev-dev` for audio and gamepads.
 
 ## Build and run
@@ -71,6 +73,7 @@ The `.bat` shortcuts in `scripts/windows/` (`Play_Jack_03E.bat`, `Play_Kong_Mars
 | Jack: throw the spear (aim + fire) / stab (fire) | Right + left mouse / left mouse | LT + RT / RT |
 | Jack: drop the spear | G | Y / North |
 | Respawn everything (nothing respawns by itself) | F8 | D-pad up |
+| Remaster settings (graphics, audio, mods) | F10 (arrows change, Esc closes) | |
 | Jack: get up after death (checkpoint) | Enter | Start |
 
 ## Repository layout

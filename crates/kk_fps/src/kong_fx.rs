@@ -8,7 +8,7 @@ use crate::events::RexEvent;
 use crate::fx::{rand_unit, spawn_particle, CameraShake, FxAssets, Particle, ShakeParams, rex_shake_k};
 use crate::kong::{KongBones, KongCtl, KongSceneRoot};
 use crate::player::MainCam;
-use bevy::core_pipeline::motion_blur::MotionBlur;
+use bevy::post_process::motion_blur::MotionBlur;
 use bevy::prelude::*;
 use kk_mechanics::kong::fight::*;
 use rand::Rng;
@@ -178,8 +178,8 @@ pub fn kong_effects(
     fx: Option<Res<FxAssets>>,
     mut mats: ResMut<Assets<StandardMaterial>>,
     mut shake: ResMut<CameraShake>,
-    mut rumble: EventWriter<crate::fx::Rumble>,
-    mut sfx: EventWriter<crate::sfx::PlaySfx>,
+    mut rumble: MessageWriter<crate::fx::Rumble>,
+    mut sfx: MessageWriter<crate::sfx::PlaySfx>,
     cam: Query<&GlobalTransform, With<MainCam>>,
     defs: Res<crate::sfx::SoundDefs>,
     mut advantage_armed: Local<Option<bool>>,
@@ -316,7 +316,7 @@ pub fn kong_footsteps(
     bones: Query<&KongBones, With<KongSceneRoot>>,
     gts: Query<&GlobalTransform>,
     cam: Query<&GlobalTransform, With<MainCam>>,
-    mut sfx: EventWriter<crate::sfx::PlaySfx>,
+    mut sfx: MessageWriter<crate::sfx::PlaySfx>,
     mut down: Local<[bool; 4]>,
 ) {
     let Some(fx) = fx else { return };
@@ -354,7 +354,7 @@ pub fn kong_footsteps(
 /// The rex's footfalls throw water as well.
 pub fn rex_splash(
     mut commands: Commands,
-    mut ev: EventReader<RexEvent>,
+    mut ev: MessageReader<RexEvent>,
     mut ctl: ResMut<KongCtl>,
     fx: Option<Res<FxAssets>>,
     mut mats: ResMut<Assets<StandardMaterial>>,

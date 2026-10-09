@@ -16,10 +16,10 @@ use crate::fx::FxAssets;
 use crate::player::MainCam;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
-use bevy::pbr::{NotShadowCaster, NotShadowReceiver};
+use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use rand::Rng;
 
 /// 07D fog colour: LGT_FOG (140,143,129) [C], brightened by the PC after-effects pass like 03E's [G].
@@ -92,8 +92,8 @@ impl Plugin for SwampPlugin {
                 PostUpdate,
                 occluder_hide
                     .run_if(in_state(GameState::Playing))
-                    .after(bevy::transform::TransformSystem::TransformPropagate)
-                    .before(bevy::render::view::VisibilitySystems::VisibilityPropagate),
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
             );
     }
 }
@@ -103,37 +103,37 @@ fn fog_color() -> Color {
     Color::srgb(c[0], c[1], c[2])
 }
 
-fn spawn_env(mut commands: Commands, mut ambient: ResMut<AmbientLight>) {
+fn spawn_env(mut commands: Commands, mut ambient: ResMut<GlobalAmbientLight>) {
     if crate::scene::marsh05c() {
         // 05C sector 7 (marsh): zone-2 ambient (63,74,74) [C colour]; key Xe_light_Spot_s07_Main (131,143,137) at
         // (154.8, 11.7, -232.7) aimed down over the marsh [C colour/position, direction L]; omnis s07 (118,134,126) [C]
-        *ambient = AmbientLight { color: Color::srgb_u8(63, 74, 74), brightness: 1300.0, ..default() };
+        *ambient = GlobalAmbientLight { color: Color::srgb_u8(63, 74, 74), brightness: 1300.0, ..default() };
         commands.spawn((
             Name::new("SwampKey"),
-            DirectionalLight { illuminance: 2400.0, shadows_enabled: false, color: Color::srgb_u8(131, 143, 137), ..default() },
+            DirectionalLight { illuminance: 2400.0, shadow_maps_enabled: false, color: Color::srgb_u8(131, 143, 137), ..default() },
             Transform::default().looking_to(Vec3::new(-24.8, -49.7, 42.7), Vec3::Y),
             RenderLayers::layer(0),
         ));
         commands.spawn((
             Name::new("SwampFill"),
-            DirectionalLight { illuminance: 600.0, shadows_enabled: false, color: Color::srgb_u8(118, 134, 126), ..default() },
+            DirectionalLight { illuminance: 600.0, shadow_maps_enabled: false, color: Color::srgb_u8(118, 134, 126), ..default() },
             Transform::default().looking_to(Vec3::new(0.5, -0.4, -0.6), Vec3::Y),
             RenderLayers::layer(0),
         ));
         return;
     }
-    *ambient = AmbientLight { color: Color::srgb(0.70, 0.82, 0.78), brightness: 380.0, ..default() };
+    *ambient = GlobalAmbientLight { color: Color::srgb(0.70, 0.82, 0.78), brightness: 380.0, ..default() };
     // key LGT_Front_map (166,159,132) [C colour], high and a little behind the fight [G direction]
     commands.spawn((
         Name::new("SwampKey"),
-        DirectionalLight { illuminance: 1500.0, shadows_enabled: false, color: Color::srgb_u8(166, 159, 132), ..default() },
+        DirectionalLight { illuminance: 1500.0, shadow_maps_enabled: false, color: Color::srgb_u8(166, 159, 132), ..default() },
         Transform::default().looking_to(Vec3::new(-0.35, -0.85, -0.4), Vec3::Y),
         RenderLayers::layer(0),
     ));
     // fill LGT_back_map (68,66,45) from the opposite side [C colour]
     commands.spawn((
         Name::new("SwampFill"),
-        DirectionalLight { illuminance: 700.0, shadows_enabled: false, color: Color::srgb(0.58, 0.68, 0.66), ..default() },
+        DirectionalLight { illuminance: 700.0, shadow_maps_enabled: false, color: Color::srgb(0.58, 0.68, 0.66), ..default() },
         Transform::default().looking_to(Vec3::new(0.4, -0.5, 0.6), Vec3::Y),
         RenderLayers::layer(0),
     ));
@@ -213,7 +213,7 @@ fn ripple_normal_image() -> Image {
 
 /// Observer on the level scene.
 pub fn on_level_ready(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::world_serialization::WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -239,7 +239,7 @@ pub fn on_level_ready(
     water.materials.push(water_mat.clone());
     let mut done = std::collections::HashSet::new();
     let (mut n_water, mut n_hidden) = (0, 0);
-    for e in children.iter_descendants(trigger.target()) {
+    for e in children.iter_descendants(trigger.entity) {
         let name = names.get(e).map(|n| n.as_str().to_string()).unwrap_or_default();
         let lower = name.to_lowercase();
         let hide = lower.contains("fog") || lower.contains("faisceau") || lower.contains("brume") || lower.contains("cascade")
@@ -283,7 +283,7 @@ pub fn on_level_ready(
             if !done.insert(h.0.id()) {
                 continue;
             }
-            if let Some(m) = mats.get_mut(&h.0) {
+            if let Some(mut m) = mats.get_mut(&h.0) {
                 if m.alpha_mode == AlphaMode::Blend && m.base_color_texture.is_none() {
                     continue;
                 }
@@ -306,7 +306,7 @@ pub fn on_level_ready(
 fn animate_water(time: Res<Time>, water: Res<SwampWater>, mut mats: ResMut<Assets<StandardMaterial>>) {
     let t = time.elapsed_secs();
     for h in &water.materials {
-        if let Some(m) = mats.get_mut(h) {
+        if let Some(mut m) = mats.get_mut(h) {
             m.uv_transform = bevy::math::Affine2::from_scale_angle_translation(Vec2::splat(0.30), 0.0, Vec2::new(t * 0.020, t * 0.013));
         }
     }
@@ -361,7 +361,7 @@ fn drift_mist(time: Res<Time>, cam: Query<&GlobalTransform, With<MainCam>>, mut 
         tf.rotation = Quat::from_rotation_y(yaw);
         // fade cards out as the camera nears them (a card in front of the lens would white out the frame)
         let f = ((to.length() - 6.0) / 14.0).clamp(0.0, 1.0);
-        if let Some(mat) = mats.get_mut(&mh.0) {
+        if let Some(mut mat) = mats.get_mut(&mh.0) {
             mat.base_color = Color::srgba(0.78, 0.86, 0.82, m.alpha * f);
         }
     }
@@ -469,7 +469,7 @@ fn ripples(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut R
         let f = r.age / r.life;
         let s = r.r0 + (r.r1 - r.r0) * (1.0 - (1.0 - f).powi(2));
         tf.scale = Vec3::splat(s);
-        if let Some(mat) = mats.get_mut(&m.0) {
+        if let Some(mut mat) = mats.get_mut(&m.0) {
             mat.base_color = Color::srgba(0.85, 0.92, 0.9, r.alpha * (1.0 - f).powf(1.3));
         }
     }
@@ -516,7 +516,7 @@ fn populate_swamp(
         ))
         .with_children(|c| {
             c.spawn((
-                SceneRoot(server.load(GltfAssetLabel::Scene(0).from_asset("kong/ann.glb"))),
+                WorldAssetRoot(server.load(GltfAssetLabel::Scene(0).from_asset("kong/ann.glb"))),
                 Transform::default(),
             ));
             c.spawn((Mesh3d(meshes.add(Sphere::new(0.11))), MeshMaterial3d(skin), Transform::from_xyz(0.0, 1.52, 0.0)));
@@ -530,7 +530,7 @@ fn occluder_hide(
     mut commands: Commands,
     ctl: Option<Res<crate::kong::KongCtl>>,
     cam: Query<&GlobalTransform, With<MainCam>>,
-    props: Query<(Entity, &GlobalTransform, &bevy::render::primitives::Aabb, &Mesh3d, Has<HiddenByCamera>, Option<&Name>), With<LevelProp>>,
+    props: Query<(Entity, &GlobalTransform, &bevy::camera::primitives::Aabb, &Mesh3d, Has<HiddenByCamera>, Option<&Name>), With<LevelProp>>,
     time: Res<Time>,
     meshes: Res<Assets<Mesh>>,
     mut cache: Local<std::collections::HashMap<Entity, Vec<[Vec3; 3]>>>,

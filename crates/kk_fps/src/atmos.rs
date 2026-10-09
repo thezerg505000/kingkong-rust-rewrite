@@ -20,10 +20,10 @@ use crate::player::MainCam;
 use crate::world::{Arena, VIEW_LAYER};
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
-use bevy::pbr::{FogVolume, VolumetricFog};
+use bevy::light::{FogVolume, VolumetricFog};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 
 /// Recovered fog colours: zone fog RGB(93,93,93), zone ambient2 RGB(119,119,119), ChangeFog
 /// RGB(37,47,47) [C]. Which zone covers the arena is not recovered, and the original's PC
@@ -133,7 +133,7 @@ fn noise3d(n: u32, seed: u32) -> Image {
     img
 }
 
-fn spawn_atmos(mut commands: Commands, arena: Res<Arena>, mut images: ResMut<Assets<Image>>, mut ambient: ResMut<AmbientLight>, mut clear: ResMut<ClearColor>) {
+fn spawn_atmos(mut commands: Commands, arena: Res<Arena>, mut images: ResMut<Assets<Image>>, mut ambient: ResMut<GlobalAmbientLight>, mut clear: ResMut<ClearColor>) {
     if !level(&arena) {
         return;
     }
@@ -141,7 +141,7 @@ fn spawn_atmos(mut commands: Commands, arena: Res<Arena>, mut images: ResMut<Ass
     clear.0 = fog_color();
     // Zone ambient is a dim neutral grey (16-19 /255) [C]; Bevy has no per-object lightmaps
     // (the original bakes RLI vertex light), so the level fill is raised to compensate [G].
-    *ambient = AmbientLight { color: Color::srgb(0.95, 0.92, 0.82), brightness: 220.0, ..default() };
+    *ambient = GlobalAmbientLight { color: Color::srgb(0.95, 0.92, 0.82), brightness: 220.0, ..default() };
 
     // Moon: the main key light, along Arene_T_Rex03's -Y (high spot aimed into the arena)
     let dir = -Vec3::new(-0.328, 0.608, -0.723);
@@ -150,10 +150,10 @@ fn spawn_atmos(mut commands: Commands, arena: Res<Arena>, mut images: ResMut<Ass
         // key light neutral: the reference shots are overcast daylight; the moon colour stays on
         // the level's own spot lights [G]
         // colour of 03E's only level-local directional light, record 08001b3e: RGB(169,186,184) [C]
-        DirectionalLight { illuminance: 950.0, shadows_enabled: false, color: Color::srgb_u8(169, 186, 184), ..default() },
+        DirectionalLight { illuminance: 950.0, shadow_maps_enabled: false, color: Color::srgb_u8(169, 186, 184), ..default() },
         Transform::default().looking_to(dir, Vec3::Y),
         RenderLayers::layer(0),
-        bevy::pbr::CascadeShadowConfigBuilder { num_cascades: 2, maximum_distance: 70.0, ..default() }.build(),
+        bevy::light::CascadeShadowConfigBuilder { num_cascades: 2, maximum_distance: 70.0, ..default() }.build(),
     ));
     if shafts {
         // 03E has no shaft lights: the key light stays non-volumetric and shadowless
@@ -172,7 +172,7 @@ fn spawn_atmos(mut commands: Commands, arena: Res<Arena>, mut images: ResMut<Ass
                 intensity: 2.0e4,
                 range,
                 color: moon_color(),
-                shadows_enabled: false,
+                shadow_maps_enabled: false,
                 inner_angle: inner,
                 outer_angle: outer,
                 ..default()
@@ -194,7 +194,7 @@ fn spawn_atmos(mut commands: Commands, arena: Res<Arena>, mut images: ResMut<Ass
     // original's hemisphere/RLI sky term so the Rex gets a top-to-belly gradient [G]
     commands.spawn((
         Name::new("SkyFill"),
-        DirectionalLight { illuminance: 700.0, shadows_enabled: false, color: Color::srgb_u8(169, 186, 184), ..default() },
+        DirectionalLight { illuminance: 700.0, shadow_maps_enabled: false, color: Color::srgb_u8(169, 186, 184), ..default() },
         Transform::default().looking_to(Vec3::new(0.05, -1.0, 0.1), Vec3::Z),
         RenderLayers::layer(0),
     ));
@@ -245,10 +245,10 @@ fn camera_fog(mut commands: Commands, arena: Res<Arena>, cams: Query<Entity, Add
         }
         if shafts_enabled() {
             // bloom needs a renderable Rg11b10 target (not on software GL)
-            c.insert(bevy::core_pipeline::bloom::Bloom {
+            c.insert(bevy::post_process::bloom::Bloom {
                 intensity: 0.2,
-                prefilter: bevy::core_pipeline::bloom::BloomPrefilter { threshold: 0.35, threshold_softness: 0.4 },
-                ..bevy::core_pipeline::bloom::Bloom::NATURAL
+                prefilter: bevy::post_process::bloom::BloomPrefilter { threshold: 0.35, threshold_softness: 0.4 },
+                ..bevy::post_process::bloom::Bloom::NATURAL
             });
             c.insert(VolumetricFog { ambient_color: Color::srgb(0.80, 0.84, 0.78), ambient_intensity: 0.05, jitter: 0.0, step_count: 48 });
         }

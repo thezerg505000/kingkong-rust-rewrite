@@ -433,7 +433,7 @@ impl Plugin for BatchPlugin {
                 done: false,
                 mark_pos: vec![],
             })
-            .add_systems(PreUpdate, drive.after(bevy::input::InputSystem).run_if(in_state(GameState::Playing)))
+            .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).run_if(in_state(GameState::Playing)))
             .add_systems(Update, record.after(crate::rex::RexSet).run_if(in_state(GameState::Playing)));
     }
 }
@@ -449,7 +449,7 @@ fn drive(
     mut rex: Query<(&mut Rex, &mut Transform), Without<Player>>,
     mut arsenal: ResMut<Arsenal>,
     arena: Res<crate::world::Arena>,
-    (mut exit, mut breaks): (EventWriter<AppExit>, EventWriter<crate::breakable::BreakRequest>),
+    (mut exit, mut breaks): (MessageWriter<AppExit>, MessageWriter<crate::breakable::BreakRequest>),
     bones: Query<&crate::rex::RexBones>,
     gts: Query<&GlobalTransform>,
     mut kong: Option<ResMut<crate::kong::KongCtl>>,
@@ -641,8 +641,8 @@ fn drive(
 #[allow(clippy::too_many_arguments)]
 fn record(
     mut r: ResMut<Runner>,
-    mut gun: EventReader<GunEvent>,
-    mut rex_ev: EventReader<RexEvent>,
+    mut gun: MessageReader<GunEvent>,
+    mut rex_ev: MessageReader<RexEvent>,
     rex: Query<&Rex>,
     players: Query<(&Player, &Transform)>,
     bones: Query<&crate::rex::RexBones>,

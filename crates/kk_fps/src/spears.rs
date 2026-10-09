@@ -18,7 +18,7 @@ use crate::player::{MainCam, Player, ViewModel};
 use crate::weapons::{Arsenal, RexDamage, RexHitbox};
 use crate::world::{Arena, VIEW_LAYER};
 use bevy::prelude::*;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use kk_mechanics::creatures::raptor::HitIn;
 use kk_mechanics::spears::{self as sp, HitClass, ImpactResult, Slots, Spear, SpearKind, SpearState};
 use rand::Rng;
@@ -102,7 +102,7 @@ fn along(dir: Vec3) -> Quat {
     Quat::from_rotation_arc(Vec3::Y, dir.normalize_or(Vec3::Y))
 }
 
-fn build_models(rigs: &Rigs, gltfs: &Assets<Gltf>, gmeshes: &Assets<bevy::gltf::GltfMesh>, meshes: &mut Assets<Mesh>, mats: &mut Assets<StandardMaterial>) -> (Model, Model) {
+fn build_models(rigs: &Rigs, gltfs: &Assets<Gltf>, gmeshes: &Assets<bevy::gltf::GltfMesh>, meshes: &mut Assets<Mesh>, mats: &mut Assets<StandardMaterial>, server: &AssetServer) -> (Model, Model) {
     let mut spear = Model::default();
     // the level's own spear mesh (S_LanceBig01): positions are in the rack skeleton's Jade frame,
     // so the parts are recentred and turned Z-up -> Y-up
@@ -126,7 +126,12 @@ fn build_models(rigs: &Rigs, gltfs: &Assets<Gltf>, gmeshes: &Assets<bevy::gltf::
                 let r = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
                 let t = Transform { translation: r * -c, rotation: r, scale: Vec3::ONE };
                 for p in &gm.primitives {
-                    let mat = p.material.clone().unwrap_or_else(|| mats.add(StandardMaterial::from(Color::srgb(0.5, 0.4, 0.3))));
+                    // glTF materials load as GltfMaterial; the StandardMaterial lives under the "<label>/std" sub-asset
+                    let std_mat: Option<Handle<StandardMaterial>> = p.material.as_ref().and_then(|h| h.path()).and_then(|path| {
+                        let label = path.label()?.to_string();
+                        Some(server.load(path.clone().with_label(format!("{label}/std"))))
+                    });
+                    let mat = std_mat.unwrap_or_else(|| mats.add(StandardMaterial::from(Color::srgb(0.5, 0.4, 0.3))));
                     spear.parts.push((p.mesh.clone(), mat, t));
                 }
             }
@@ -160,7 +165,7 @@ fn spawn_model(commands: &mut Commands, parent: Entity, m: &Model, layer: Option
     for (mesh, mat, t) in &m.parts {
         let mut e = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), *t));
         if let Some(l) = layer {
-            e.insert((RenderLayers::layer(l), bevy::pbr::NotShadowCaster));
+            e.insert((RenderLayers::layer(l), bevy::light::NotShadowCaster));
         }
         let id = e.id();
         commands.entity(parent).add_child(id);
@@ -190,7 +195,7 @@ fn setup(
     arena: Res<Arena>,
     assets: Res<AssetServer>,
     time: Res<Time>,
-    mut respawn: EventReader<crate::hud::RespawnAll>,
+    mut respawn: MessageReader<crate::hud::RespawnAll>,
     spears: Query<Entity, With<SpearObj>>,
     mut jack: ResMut<JackSpear>,
 ) {
@@ -199,18 +204,18 @@ fn setup(
         return;
     }
     if !kit.ready {
-        let (s, b) = build_models(&rigs, &gltfs, &gmeshes, &mut meshes, &mut mats);
+        let (s, b) = build_models(&rigs, &gltfs, &gmeshes, &mut meshes, &mut mats, &assets);
         kit.spear = s;
         kit.bone = b;
         kit.ready = true;
         // the rack the level glb does not draw: the rack prop, when exported
-        let prop = crate::asset_dir().join("level03e/props/PFB_C_RackLanceSkel01.glb");
+        let prop = crate::mods::resolve("level03e/props/PFB_C_RackLanceSkel01.glb");
         if prop.exists() {
             let (_, p, yaw) = RACKS[0];
             let y = arena.ground_at(p + Vec3::Y * 2.0).unwrap_or(p.y);
             commands.spawn((
                 Name::new("RackLanceSkel (prop)"),
-                SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset("level03e/props/PFB_C_RackLanceSkel01.glb"))),
+                WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset("level03e/props/PFB_C_RackLanceSkel01.glb"))),
                 // the prop glb is centred on its bbox: lift by half its 2.03 m height
                 Transform::from_xyz(p.x, y + 1.015, p.z).with_rotation(Quat::from_rotation_y(yaw)),
             ));
@@ -266,7 +271,7 @@ fn input(
     piles: Query<&Transform, With<BonePile>>,
     mut creatures: Query<(Entity, &Creature, &CreatureRig, &mut RaptorAi)>,
     gts: Query<&GlobalTransform>,
-    mut sfx: EventWriter<crate::sfx::PlaySfx>,
+    mut sfx: MessageWriter<crate::sfx::PlaySfx>,
 ) {
     let dt = time.delta_secs();
     jack.melee_cd = (jack.melee_cd - dt).max(0.0);
@@ -425,9 +430,9 @@ fn flight(
     mut creatures: Query<(Entity, &Creature, &CreatureRig, &mut RaptorAi, &GlobalTransform)>,
     gts: Query<&GlobalTransform>,
     hitbox: Res<RexHitbox>,
-    mut rex_dmg: EventWriter<RexDamage>,
-    mut gun: EventWriter<crate::events::GunEvent>,
-    mut sfx: EventWriter<crate::sfx::PlaySfx>,
+    mut rex_dmg: MessageWriter<RexDamage>,
+    mut gun: MessageWriter<crate::events::GunEvent>,
+    mut sfx: MessageWriter<crate::sfx::PlaySfx>,
 ) {
     let dt = time.delta_secs().min(0.05);
     let t = kit.t;
@@ -481,7 +486,7 @@ fn flight(
             let (tt, ce, bone, head) = best_c.unwrap();
             let hit = old + dir * tt;
             o.s.pos = to_m(hit);
-            let res = o.s.impact(HitClass::Creature, Some(ce.index()), false);
+            let res = o.s.impact(HitClass::Creature, Some(ce.index_u32()), false);
             let dmg = match res {
                 ImpactResult::Embedded { damage } | ImpactResult::Glanced { damage } => damage,
                 _ => 0,
@@ -498,7 +503,7 @@ fn flight(
                 // `hit_point - axis * 0.6`, then `Javelin_Plug` follows the bone [C]
                 let at = hit - dir * sp::EMBED_DEPTH;
                 if let Ok(bg) = gts.get(bone) {
-                    let local = bg.compute_matrix().inverse() * Mat4::from_rotation_translation(along(dir), at);
+                    let local = bg.to_matrix().inverse() * Mat4::from_rotation_translation(along(dir), at);
                     o.host = Some((ce, local, bone));
                 }
                 tf.translation = at;
@@ -559,7 +564,7 @@ fn follow_hosts(mut objs: Query<(&mut SpearObj, &mut Transform)>, gts: Query<&Gl
         let alive = creatures.get(host).is_ok();
         match (alive, gts.get(bone)) {
             (true, Ok(bg)) => {
-                let m = bg.compute_matrix() * local;
+                let m = bg.to_matrix() * local;
                 let (_, r, t) = m.to_scale_rotation_translation();
                 tf.translation = t;
                 tf.rotation = r;

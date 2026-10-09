@@ -23,12 +23,12 @@ use rand::Rng;
 pub struct BreakablePlugin;
 
 /// Smash a breakable by key (batches, debugging) exactly as a Kong blow would.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct BreakRequest(pub &'static str);
 
 impl Plugin for BreakablePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Breakables>().add_event::<BreakRequest>().add_systems(
+        app.init_resource::<Breakables>().add_message::<BreakRequest>().add_systems(
             Update,
             (find_pieces, triggers, debris).chain().after(crate::kong::KongSet).run_if(in_state(crate::anim::GameState::Playing)),
         );
@@ -133,7 +133,7 @@ fn find_pieces(
             .as_ref()
             .and_then(|l| l.box_names.iter().position(|b| b == n.as_str()).map(|k| (l.boxes[k].1 - l.boxes[k].0) * 0.5))
             .map_or(0.6, |h| h.min_element().max(0.3));
-        pieces.push(Piece { entity: e, group: g, home: *tf, parent: pg.compute_matrix(), pos, rot: me.rotation(), vel: Vec3::ZERO, spin: Vec3::ZERO, half, resting: true });
+        pieces.push(Piece { entity: e, group: g, home: *tf, parent: pg.to_matrix(), pos, rot: me.rotation(), vel: Vec3::ZERO, spin: Vec3::ZERO, half, resting: true });
     }
     if !pieces.is_empty() && pieces.iter().all(|p| p.parent != Mat4::IDENTITY || p.pos != Vec3::ZERO) {
         info!(
@@ -154,7 +154,7 @@ fn triggers(
     mut br: ResMut<Breakables>,
     mut arena: ResMut<Arena>,
     ctl: Option<Res<KongCtl>>,
-    (mut respawn, mut requests): (EventReader<crate::hud::RespawnAll>, EventReader<BreakRequest>),
+    (mut respawn, mut requests): (MessageReader<crate::hud::RespawnAll>, MessageReader<BreakRequest>),
     mut commands: Commands,
     facades: Query<(Entity, &Mesh3d, &GlobalTransform, Option<&Name>)>,
     (children, parents, names, names_q): (Query<&Children>, Query<&ChildOf>, Query<&Name>, Query<(Entity, &Name)>),
@@ -162,7 +162,7 @@ fn triggers(
     fx: Option<Res<FxAssets>>,
     mut mats: ResMut<Assets<StandardMaterial>>,
     mut shake: ResMut<CameraShake>,
-    mut sfx: EventWriter<crate::sfx::PlaySfx>,
+    mut sfx: MessageWriter<crate::sfx::PlaySfx>,
     mut tfs: Query<(&mut Transform, &mut Visibility)>,
 ) {
     br.t += time.delta_secs();
@@ -182,7 +182,7 @@ fn triggers(
         for p in br.pieces.iter_mut() {
             p.resting = true;
             p.vel = Vec3::ZERO;
-            let m = p.parent * p.home.compute_matrix();
+            let m = p.parent * p.home.to_matrix();
             let (_, r, t) = m.to_scale_rotation_translation();
             p.pos = t;
             p.rot = r;
@@ -256,7 +256,7 @@ fn triggers(
             continue;
         }
         br.broken[g] = true;
-        if let Some(a) = arena.broken.get_mut(g) {
+        if let Some(mut a) = arena.broken.get_mut(g) {
             *a = true;
         }
         let key = BREAKABLES[g].key;
@@ -281,7 +281,7 @@ fn triggers(
                 continue;
             }
             let Some(mesh) = meshes.get(&m3.0) else { continue };
-            if let Some(cut) = cut_box(mesh, gt.compute_matrix(), def.lo, def.hi) {
+            if let Some(cut) = cut_box(mesh, gt.to_matrix(), def.lo, def.hi) {
                 let h = meshes.add(cut);
                 br.edits.push(FacadeEdit { entity: e, original: m3.0.clone(), group: g });
                 commands.entity(e).insert(Mesh3d(h));
