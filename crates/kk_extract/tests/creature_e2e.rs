@@ -171,3 +171,19 @@ fn creature_tables_match_python() {
     }
     assert_eq!(seen, 5);
 }
+
+/// Kong's fur mask (RLI alpha per render vertex) matches the Python derivation; the face is mostly bare.
+#[test]
+fn kong_fur_rli_matches_python() {
+    let dir = skip_without_data!();
+    let built = build_one(&dir, "kong/kong.glb");
+    let mask = &built.files.iter().find(|(f, _)| f.ends_with("kong_fur_rli.bin")).expect("fur_rli output").1;
+    assert_eq!(mask.len(), 4784);
+    if let Some(reference) = ref_bytes(&dir, "kong_fur_rli.bin") {
+        assert_eq!(mask, &reference);
+    }
+    // head = the last 2411 render vertices: only about 12% carry more than half the fur length
+    let head = &mask[mask.len() - 2411..];
+    let furred = head.iter().filter(|&&a| a < 128).count() as f32 / head.len() as f32;
+    assert!(furred < 0.2, "head fur fraction {furred}");
+}

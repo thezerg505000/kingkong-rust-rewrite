@@ -911,8 +911,40 @@ pub fn build_kong_like(src: &mut dyn Source, name: &str, recipe: &Value, opts: &
     if let Some(f) = recipe["outputs"]["actions"].as_str() {
         files.push((f.to_string(), serde_json::to_vec_pretty(&Value::Object(actions))?));
     }
+    if let Some(f) = recipe["outputs"]["fur_rli"].as_str() {
+        files.push((f.to_string(), fur_rli(d, &parts, name)?));
+    }
     let _: BTreeSet<i32> = BTreeSet::new();
     Ok(Built { files, notes: vec![format!("rig error max {:.2e}", prep.max_err)] })
+}
+
+/// Kong's per-vertex fur length mask: the alpha of each part's RLI record (`u32 size; "RLI\x80"; u32 count;
+/// u32 colour[count]`, one D3DCOLOR per GEO vertex, stored right after the GEO in the stream), expanded to the
+/// glb's render vertices (the same `flatten` order as the mesh). One byte per vertex, 0 = full length, 255 = bare
+/// (`vsfur.hlsl`: `offset = g_fFurNormalOffset * (1 - RLI.a)`).
+fn fur_rli(d: &[u8], parts: &[Part], name: &str) -> Result<Vec<u8>> {
+    const TAG: [u8; 4] = [0x80, 0x52, 0x4c, 0x49];
+    let mut out = Vec::new();
+    for part in parts {
+        let g: Geo = geo::parse_geo(d, part.geo_off).map_err(|e| err!("{name}: {} GEO {:#x}: {e}", part.name, part.geo_off))?;
+        let flat = geo::flatten(&g)?;
+        let end = (part.geo_off + 0x40_0000).min(d.len().saturating_sub(8));
+        let mut found = None;
+        let mut o = part.geo_off;
+        while o < end {
+            if d[o..o + 4] == TAG && u32::from_le_bytes([d[o + 4], d[o + 5], d[o + 6], d[o + 7]]) as usize == g.nverts {
+                found = Some(o + 8);
+                break;
+            }
+            o += 1;
+        }
+        let at = found.ok_or_else(|| err!("{name}: no RLI record with {} colours after {} GEO {:#x}", g.nverts, part.name, part.geo_off))?;
+        if at + 4 * g.nverts > d.len() {
+            return Err(err!("{name}: RLI of {} runs past the stream", part.name));
+        }
+        out.extend(flat.src.iter().map(|&v| d[at + 4 * v + 3]));
+    }
+    Ok(out)
 }
 
 #[allow(dead_code)]

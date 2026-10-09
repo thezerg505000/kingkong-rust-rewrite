@@ -45,7 +45,12 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #ifdef VERTEX_POSITIONS
     out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
 #ifdef VERTEX_NORMALS
-    out.world_position = vec4<f32>(out.world_position.xyz + normalize(out.world_normal) * fur.shell.x, out.world_position.w);
+    // per-vertex length: 1 - RLI.a, carried in the vertex colour alpha (vsfur.hlsl); 1 without a mask
+    var len_k = 1.0;
+#ifdef VERTEX_COLORS
+    len_k = vertex.color.a;
+#endif
+    out.world_position = vec4<f32>(out.world_position.xyz + normalize(out.world_normal) * fur.shell.x * len_k, out.world_position.w);
 #endif
     out.position = position_world_to_clip(out.world_position.xyz);
 #endif
@@ -80,6 +85,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     if (a < fur.shell.y) {
         discard;
     }
+#ifdef VERTEX_COLORS
+    // bare skin (face, chest, palms): no shells at all, they would only z-fight the base surface
+    if (in.color.a < 0.04) {
+        discard;
+    }
+#endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     pbr_input.material.base_color = vec4<f32>(pbr_input.material.base_color.rgb * fur.shell.z, 1.0);
     var out: FragmentOutput;

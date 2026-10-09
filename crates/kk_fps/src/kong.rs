@@ -134,6 +134,8 @@ pub struct KongCtl {
     pub kong_yaw: f32,
     pub rex_yaw: f32,
     pub kong_y: f32,
+    /// batch marks of Kong's world position (`Act::KongMark`)
+    pub kong_marks: Vec<(&'static str, Vec3)>,
     pub rex_y: f32,
     pub kong_head: Vec3,
     pub kong_pos_prev: Vec3,
@@ -196,7 +198,7 @@ fn new_fight(seed: u32) -> Fight {
 impl KongCtl {
     pub fn new(center: Vec3, seed: u32) -> Self {
         let watch = std::env::var("KK_KONG_WATCH").is_ok_and(|v| v == "1")
-            || batch_name().is_some_and(|b| b.contains("kong_fight") || b.contains("kong_cinema") || b.contains("kong_player") || b.contains("swamp_fight"));
+            || batch_name().is_some_and(|b| b.contains("kong_fight") || b.contains("kong_cinema") || b.contains("kong_player") || b.contains("kong_roam") || b.contains("swamp_fight"));
         let cinematic = std::env::var("KK_KONG_CAM").is_ok_and(|v| v == "1")
             || batch_name().is_some_and(|b| b.contains("kong_cinema") || b.contains("swamp_fight"));
         let fight = new_fight(seed);
@@ -222,6 +224,7 @@ impl KongCtl {
             kong_yaw: 0.0,
             rex_yaw: 0.0,
             kong_y: center.y,
+            kong_marks: vec![],
             rex_y: center.y,
             kong_head: center,
             kong_pos_prev: center,
@@ -464,7 +467,8 @@ fn resolve_id(id: u32) -> u32 {
 fn ground_y(arena: &Arena, _center: Vec3, x: f32, z: f32, fallback: f32) -> f32 {
     match &arena.level {
         Some(l) => {
-            let g = l.ground_base(x, z, fallback, 1.2).unwrap_or(fallback);
+            // the full ground set (level mesh floors, stairs and ramps included where loaded): Kong climbs slopes
+            let g = l.ground(x, z, fallback, crate::fightarena::STEP_UP + 0.3).unwrap_or(fallback);
             // the swamp: the fighters wade, never deeper than about knee height under the surface (the pools'
             // render floors drop away under the water planes) [G]
             if crate::scene::swamp() { g.max(crate::swamp::water_y() - 0.9) } else { g }
@@ -538,6 +542,7 @@ fn setup_kong(
             "fight arena: centre ({:.1}, {:.1}, {:.1}) clearance {:.1} m, axis {:.0} deg, Kong x {:.1} rex x {:.1}, Jack vantage ({:.1}, {:.1}, {:.1})",
             fa.center.x, fa.center.y, fa.center.z, fa.best_clearance, fa.rot.to_degrees(), fa.kong_x, fa.rex_x, fa.jack.x, fa.jack.y, fa.jack.z
         );
+        info!("fight arena: fighters can climb {:.1} m above the centre floor (slopes / banks)", fa.climb());
         if let Ok(p) = std::env::var("KK_ARENA_DUMP") {
             fa.dump_pgm(&p);
         }
@@ -591,6 +596,7 @@ fn on_kong_ready(
     assets: Res<KongAssets>,
     mat_q: Query<&MeshMaterial3d<StandardMaterial>>,
     mut mats: ResMut<Assets<StandardMaterial>>,
+    (mesh_q, mut mesh_assets): (Query<(&Mesh3d, Option<&bevy::gltf::GltfMaterialName>)>, ResMut<Assets<Mesh>>),
 ) {
     let root = trigger.target();
     let mut found: HashMap<&'static str, Entity> = HashMap::new();
@@ -602,6 +608,15 @@ fn on_kong_ready(
         if meshes.contains(e) {
             // skinned AABBs are computed from the bind pose
             commands.entity(e).insert((bevy::render::view::NoFrustumCulling, KongMesh));
+            // the body GEO's own normals disagree with its triangles (kong_fur::weld_smooth_normals)
+            if let Ok((m3, Some(mn))) = mesh_q.get(e) {
+                if mn.0 == "kong_body" && std::env::var("KK_KONG_RAW_NORMALS").is_err() {
+                    if let Some(m) = mesh_assets.get_mut(&m3.0) {
+                        let ok = crate::kong_fur::weld_smooth_normals(m);
+                        info!("kong body normals rebuilt from the triangles: {ok}");
+                    }
+                }
+            }
             if let Ok(h) = mat_q.get(e) {
                 if let Some(m) = mats.get_mut(&h.0) {
                     tune_material(m);
@@ -975,7 +990,9 @@ fn kong_fight(
     if c.fight.over == Some(Actor::Kong) && c.over_at.is_some() && !c.player_control {
         gate_smash(c, dt, gate_intact);
     }
-    if !c.fight.is_finished() {
+    // after a win the player keeps Kong: the fight keeps stepping him in k_ETAT_main (free roam)
+    let roam = c.player_control && c.fight.over == Some(Actor::Kong) && c.fight.kong.victory_done;
+    if !c.fight.is_finished() || roam {
         let (k0, r0) = (c.kong_world(), c.rex_world());
         let evs = c.fight.step(dt, &input);
         // collide-and-slide against the free cells: neither fighter enters a pillar, rock or bank
@@ -999,7 +1016,7 @@ fn kong_fight(
             c.log.push((t, e.clone()));
             c.frame_events.push(e);
         }
-        if c.fight.is_finished() {
+        if c.fight.is_finished() && c.finished_at.is_none() {
             c.finished_at = Some(c.t);
         }
     }
@@ -1695,6 +1712,27 @@ pub fn batch_checks(name: &str, c: &KongCtl, marks: &[(&'static str, f32)]) -> V
     v.push(chk("no Kong clip id without a clip (kong_actions.json)", json!([]), json!(c.missing_ids), c.missing_ids.is_empty()));
     v.push(chk("the fight plane stays glued to the rex entity (max XZ error m)", json!("<0.01"), json!(c.max_sync_err), c.max_sync_err < 0.01));
     let swamp07d = crate::scene::swamp() && !crate::scene::marsh05c();
+    if name == "b13_kong_roam" {
+        let pos = |m: &str| c.kong_marks.iter().find(|x| x.0 == m).map(|x| x.1);
+        v.push(chk("player Kong wins by the jaw-break finisher", json!("FinisherSuccess + RexDied"), json!([c.has(|e| matches!(e, FightEvent::FinisherSuccess)), c.has(|e| matches!(e, FightEvent::RexDied))]), c.has(|e| matches!(e, FightEvent::FinisherSuccess)) && c.has(|e| matches!(e, FightEvent::RexDied))));
+        v.push(chk("victory pound and roar play once, then Kong is back in k_ETAT_main", json!("victory_done, mode Main"), json!([c.fight.kong.victory_done, format!("{:?}", c.fight.kong.mode)]), c.fight.kong.victory_done && c.fight.kong.mode == kk_mechanics::kong::fight::KongMode::Main));
+        let moved = match (pos("roam0"), pos("roam1")) {
+            (Some(a), Some(b)) => Vec2::new(b.x - a.x, b.z - a.z).length(),
+            _ => 0.0,
+        };
+        let when = |f: fn(&FightEvent) -> bool| c.log.iter().find(|(_, e)| f(e)).map(|x| x.0);
+        v.push(chk(
+            "after the win the player walks Kong away (not stuck in the victory clip)",
+            json!("> 4 m"),
+            json!({"moved": moved, "marks": c.kong_marks.iter().map(|m| (m.0, [m.1.x, m.1.y, m.1.z])).collect::<Vec<_>>(),
+                "finisher_success_t": when(|e| matches!(e, FightEvent::FinisherSuccess)), "pound_t": when(|e| matches!(e, FightEvent::VictoryPound)),
+                "over_t": when(|e| matches!(e, FightEvent::FightOver { .. })), "player": c.player_control}),
+            moved > 4.0,
+        ));
+        let climb = c.farena.as_ref().map_or(0.0, |fa| fa.climb());
+        v.push(chk("Kong's walkable ground reaches up slopes / banks above the fight floor", json!("> 1.0 m"), json!(climb), climb > 1.0));
+        return v;
+    }
     if name.contains("kong_fight") || name.contains("kong_cinema") || name.contains("swamp_fight") {
         v.push(chk("V-Rex dies (KT mort)", json!("RexDied + state Mort"), json!(c.fight.rex.state() == KtState::Mort), c.has(|e| matches!(e, FightEvent::RexDied)) && c.fight.rex.state() == KtState::Mort));
         v.push(chk("Kong survives", json!(0), json!(c.count(|e| matches!(e, FightEvent::KongDied))), !c.has(|e| matches!(e, FightEvent::KongDied))));

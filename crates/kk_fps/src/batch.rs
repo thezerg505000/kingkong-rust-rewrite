@@ -42,6 +42,10 @@ pub enum Act {
     JackAt { x: f32, z: f32, yaw: f32 },
     /// smash a breakable (`world::BREAKABLES` key) as a Kong blow would
     Break(&'static str),
+    /// Kong batches: set the V-Rex's life (0 knocks it down: the finisher window)
+    RexLife(f32),
+    /// Kong batches: record Kong's world position under a name
+    KongMark(&'static str),
     End,
 }
 
@@ -216,6 +220,28 @@ pub const BATCHES: &[Batch] = &[
             (13.0, Act::Key(KeyCode::Tab)),
             (13.4, Act::Shot("jack_again")),
             (14.2, Act::End),
+        ],
+    },
+    Batch {
+        name: "b13_kong_roam",
+        reference: "k_ETAT_main after k_ETAT_finish (player Kong)",
+        about: "The player takes Kong (Tab), the rex is knocked down (life 0), Kong walks in and mashes the jaw-break finisher; after the victory pound and roar the player walks Kong away: he must not stay in the victory clip",
+        script: &[
+            (0.0, Act::PlaceJack { x: f32::NAN, z: 0.0 }),
+            (0.1, Act::Mark("start")),
+            (1.0, Act::Key(KeyCode::Tab)),
+            (1.4, Act::RexLife(0.0)),
+            (1.6, Act::KeyHold(KeyCode::KeyW, true)),
+            (3.3, Act::KeyHold(KeyCode::KeyW, false)),
+            (3.6, Act::Click), (3.8, Act::Click), (3.9, Act::Click), (4.0, Act::Click), (4.2, Act::Click), (4.3, Act::Click), (4.5, Act::Click), (4.7, Act::Click), (4.8, Act::Click), (5.0, Act::Click), (5.1, Act::Click), (5.2, Act::Click), (5.4, Act::Click), (5.5, Act::Click), (5.7, Act::Click), (5.8, Act::Click), (6.0, Act::Click), (6.2, Act::Click), (6.3, Act::Click), (6.5, Act::Click), (6.6, Act::Click), (6.8, Act::Click), (6.9, Act::Click), (7.0, Act::Click), (7.2, Act::Click), (7.3, Act::Click), (7.5, Act::Click), (7.7, Act::Click), (7.8, Act::Click), (8.0, Act::Click), (8.1, Act::Click), (8.2, Act::Click), (8.4, Act::Click), (8.6, Act::Click), (8.7, Act::Click), (8.8, Act::Click), (9.0, Act::Click), (9.2, Act::Click), (9.3, Act::Click), (9.4, Act::Click), (9.6, Act::Click), (9.8, Act::Click), (9.9, Act::Click), (1e+01, Act::Click), (1e+01, Act::Click), (1e+01, Act::Click), (1e+01, Act::Click), (1.1e+01, Act::Click), (1.1e+01, Act::Click), (1.1e+01, Act::Click), (1.1e+01, Act::Click), (1.1e+01, Act::Click), (1.1e+01, Act::Click), (1.2e+01, Act::Click), (1.2e+01, Act::Click), (1.2e+01, Act::Click), (1.2e+01, Act::Click), (1.2e+01, Act::Click), (1.2e+01, Act::Click), (1.2e+01, Act::Click), (1.3e+01, Act::Click), (1.3e+01, Act::Click), (1.3e+01, Act::Click), (1.3e+01, Act::Click), (1.3e+01, Act::Click), (1.3e+01, Act::Click), (1.4e+01, Act::Click), (1.4e+01, Act::Click), (1.4e+01, Act::Click), (1.4e+01, Act::Click), (1.4e+01, Act::Click), (1.4e+01, Act::Click), (1.4e+01, Act::Click), (1.5e+01, Act::Click), (1.5e+01, Act::Click), (1.5e+01, Act::Click),
+            (9.0, Act::Shot("finisher")),
+            (23.0, Act::Shot("victory_over")),
+            (23.2, Act::KongMark("roam0")),
+            (23.3, Act::KeyHold(KeyCode::KeyS, true)),
+            (26.0, Act::KeyHold(KeyCode::KeyS, false)),
+            (26.1, Act::KongMark("roam1")),
+            (26.2, Act::Shot("roam")),
+            (27.0, Act::End),
         ],
     },
     Batch {
@@ -557,6 +583,18 @@ fn drive(
                     keys.release(k);
                 }
             }
+            Act::RexLife(l) => {
+                if let Some(k) = kong.as_deref_mut() {
+                    k.fight.rex.machine.life.cur = l;
+                }
+            }
+            Act::KongMark(m) => {
+                if let Some(k) = kong.as_deref_mut() {
+                    let w = k.kong_world();
+                    let p = Vec3::new(w.x, k.kong_y, w.z);
+                    k.kong_marks.push((m, p));
+                }
+            }
             Act::PlaceJack { x, z } => {
                 if let Some(k) = kong.as_deref_mut() {
                     k.pending_jack = Some((x, z));
@@ -825,7 +863,7 @@ fn write_report(r: &Runner, sfx: &SfxLog, rumble: &RumbleLog, stats: &FxStats, s
             checks.push(check("'Trex alert roar' then 'Trex_attack_jack' then 'Trex_bite'", json!("all"), json!([all_roars, count("Trex_attack_jack"), count("Trex_bite")]), all_roars >= 1 && count("Trex_attack_jack") >= 1 && count("Trex_bite") >= 1));
             checks.push(check("death sound 'Jack body fall death'", json!(1), json!(count("Jack body fall death")), count("Jack body fall death") >= 1));
         }
-        "b7_kong_fight" | "b8_kong_player" | "b9_kong_cinema" | "b10_swamp_fight" => {
+        "b7_kong_fight" | "b8_kong_player" | "b9_kong_cinema" | "b10_swamp_fight" | "b13_kong_roam" => {
             if let Some(k) = kong {
                 checks.extend(crate::kong::batch_checks(r.batch.name, k, &r.marks));
             }

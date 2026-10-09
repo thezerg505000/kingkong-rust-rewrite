@@ -419,6 +419,9 @@ pub struct KongState {
     pub victory_t: f32,
     /// victory pound waits for the jaw-break clip 0xe8 to finish (s into the victory)
     pub victory_pound_at: f32,
+    /// the victory sequence (pound + roar) is over and Kong is back in `k_ETAT_main` [L: after the
+    /// win the game hands Kong back to the player; the fight no longer drives anything]
+    pub victory_done: bool,
     pub paf_len: f32,
     pub attacks_started: u32,
 }
@@ -463,6 +466,7 @@ impl KongState {
             finisher: None,
             victory_t: 0.0,
             victory_pound_at: 0.0,
+            victory_done: false,
             paf_len: 0.0,
             attacks_started: 0,
         }
@@ -776,7 +780,7 @@ impl Fight {
             if self.acc < 0.0 {
                 self.acc = 0.0;
             }
-            if self.over.is_some() && self.kong.mode != KongMode::Victory {
+            if self.over == Some(Actor::Rex) || (self.over.is_some() && self.kong.mode != KongMode::Victory && !self.kong.victory_done) {
                 break;
             }
             let pressed = self.pending_pressed;
@@ -1531,7 +1535,7 @@ impl Fight {
     // Victory
     // ------------------------------------------------------------------------------------
     fn begin_victory(&mut self) {
-        if self.kong.mode == KongMode::Victory || self.kong.mode == KongMode::Dead {
+        if self.kong.victory_done || self.kong.mode == KongMode::Victory || self.kong.mode == KongMode::Dead {
             return;
         }
         // after the jaw-break, the pound waits for the end of 0xe8 [C: 0xe8 plays to its end]
@@ -1587,13 +1591,19 @@ impl Fight {
         }
         if before < end_at && self.kong.victory_t >= end_at {
             self.emit(FightEvent::FightOver { winner: Actor::Kong });
+            // back to free control: walk, run, swing (the dead rex no longer reacts)
+            self.kong.victory_done = true;
+            self.kong.mode = KongMode::Main;
+            self.kong.phase = Phase::None;
+            self.emit(FightEvent::KongMode { mode: KongMode::Main });
+            self.play(combat::ANIM_IDLE);
         }
     }
 
     pub fn is_finished(&self) -> bool {
         match self.over {
             Some(Actor::Rex) => true,
-            Some(Actor::Kong) => self.kong.mode == KongMode::Victory && self.kong.victory_t >= self.kong.victory_pound_at + 5.0,
+            Some(Actor::Kong) => self.kong.victory_done,
             None => false,
         }
     }
@@ -2202,6 +2212,36 @@ mod tests {
             }
         }
         assert!(won && died_at.is_some());
+    }
+
+    #[test]
+    fn after_the_victory_kong_is_free_to_move_again() {
+        let mut f = Fight::new(9);
+        knocked_out(&mut f);
+        f.start_finisher();
+        let mut n = 0usize;
+        while !f.is_finished() && n < (40.0 / TICK) as usize {
+            let mut j = KongInput::default();
+            j.buttons[SLOT_ATTACK].held = true;
+            j.buttons[SLOT_ATTACK].pressed = n % 2 == 0;
+            f.step(TICK, &j);
+            n += 1;
+        }
+        assert!(f.is_finished() && f.over == Some(Actor::Kong));
+        assert_eq!(f.kong.mode, KongMode::Main);
+        // let a swing latched during the mash play out, then the stick walks him away from the corpse
+        for _ in 0..(2.0 / TICK) as usize {
+            f.step(TICK, &KongInput::default());
+        }
+        let p0 = f.kong.pos;
+        let away = norm(sub(f.kong.pos, f.rex.pos));
+        let mut walk = KongInput::default();
+        walk.stick = away;
+        for _ in 0..(1.0 / TICK) as usize {
+            f.step(TICK, &walk);
+        }
+        assert!(len(sub(f.kong.pos, p0)) > 2.0, "Kong stayed in the victory pose: {:?} -> {:?} phase {:?}", p0, f.kong.pos, f.kong.phase);
+        assert!(f.is_finished());
     }
 
     #[test]

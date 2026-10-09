@@ -232,7 +232,8 @@
    "labels": "kong",
    "outputs": {
     "rootmotion": "kong/kong_rootmotion.json",
-    "actions": "kong/kong_actions.json"
+    "actions": "kong/kong_actions.json",
+    "fur_rli": "kong/kong_fur_rli.bin"
    },
    "asset_extras": {
     "source": "King Kong 2005 PC (Jade), rebuilt from the user's own copy by kk-extract (level 10B stream ff00018c)",

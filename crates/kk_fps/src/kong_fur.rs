@@ -15,7 +15,12 @@
 //! * `S_Kong_Weta_Def` (body):      len 12,  a 2, b 10,   10 layers; fur layer 0x83009e48, words (0xc1360001, 0x41bb0000)
 //! * `S_XE_KongBrasG/D` (arms):     len 42,  a 1, b -40,  22 layers; same material as the body
 //! * `S_Kong_Weta_Def_TeteHDef01`:  len 15.05, a 2, b 20, 12 layers; face fur layer 0x5600d6bd, words (0xc0023c05, 0xbffc3f00)
-//! The per-vertex length scale (vertex colour alpha) is unused: Kong's GEOs carry no colours / alpha 255 [C].
+//! Per-vertex fur length [C]: the PC fur vertex shader (`vsfur.hlsl`, `FUN_00a054b0`) does
+//! `RLI.a = 1 - RLI.a; pos += normal * g_fFurNormalOffset * RLI.a`, so the length comes from the alpha of the object's
+//! RLI array (the per-instance vertex colours of the GAO visual, `RLI\x80` records after each Kong GEO, one u32 per GEO
+//! vertex), not from the GEO. Kong's RLI alphas: body 1301 verts (about half long fur, the chest/palms/feet bare),
+//! arms 318/376, head 2025 (only the scalp, cheeks and jaw line furred: 12% of the render vertices; the face is bare).
+//! `kong/kong_fur_rli.bin` holds that alpha per kong.glb render vertex (kk_extract recipe `kong_fur_rli`).
 //! Not ported: the dynamic part (per-vertex velocity buffers, k14..k24 stiffness) and the root shade, which is
 //! replaced by a mild darkening of the inner shells [G].
 
@@ -97,6 +102,64 @@ pub fn spec_for(material_name: &str) -> Option<FurSpec> {
     }
 }
 
+/// RLI alpha per kong.glb vertex (0 = full-length fur, 255 = none); `None` when the asset is missing.
+fn rli_alpha() -> Option<Vec<u8>> {
+    std::fs::read(crate::asset_dir().join("kong/kong_fur_rli.bin")).ok()
+}
+
+/// Copy of a Kong part mesh with the fur length factor `1 - RLI.a` in the vertex colour alpha.
+fn with_fur_length(mesh: &Mesh, rli: &[u8]) -> Option<Mesh> {
+    let n = mesh.count_vertices();
+    if rli.len() < n {
+        return None;
+    }
+    let mut m = mesh.clone();
+    let cols: Vec<[f32; 4]> = (0..n).map(|i| [1.0, 1.0, 1.0, 1.0 - rli[i] as f32 / 255.0]).collect();
+    m.insert_attribute(Mesh::ATTRIBUTE_COLOR, cols);
+    Some(m)
+}
+
+/// Smooth vertex normals from the triangles, welded across UV seams by position (area weighted).
+///
+/// Kong's body GEO (`S_Kong_Weta_Def`, 1301 verts) carries normals that disagree with its own triangles on 543
+/// vertices (median dot with the geometric normal 0.3, the upper torso mostly inverted), while the arm and head
+/// GEOs agree (arms 1.0, head 0.96) [C: measured on the user's ff00018c]. With those normals the shells of
+/// the body were pushed inside it (no body fur) and the torso lit as if turned away. The game shows a furred,
+/// normally lit torso, so the body gets geometric normals here [L]; how the engine treats that array is open.
+pub fn weld_smooth_normals(mesh: &mut Mesh) -> bool {
+    use bevy::render::mesh::{Indices, VertexAttributeValues};
+    let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).cloned() else { return false };
+    let idx: Vec<usize> = match mesh.indices() {
+        Some(Indices::U32(v)) => v.iter().map(|&i| i as usize).collect(),
+        Some(Indices::U16(v)) => v.iter().map(|&i| i as usize).collect(),
+        None => return false,
+    };
+    let key = |p: &[f32; 3]| ((p[0] * 1.0e4).round() as i64, (p[1] * 1.0e4).round() as i64, (p[2] * 1.0e4).round() as i64);
+    let mut weld: std::collections::HashMap<(i64, i64, i64), usize> = std::collections::HashMap::new();
+    let group: Vec<usize> = pos.iter().map(|p| { let n = weld.len(); *weld.entry(key(p)).or_insert(n) }).collect();
+    let mut acc = vec![Vec3::ZERO; weld.len()];
+    for t in idx.chunks_exact(3) {
+        let (a, b, c) = (Vec3::from(pos[t[0]]), Vec3::from(pos[t[1]]), Vec3::from(pos[t[2]]));
+        let n = (b - a).cross(c - a);
+        for &v in t {
+            acc[group[v]] += n;
+        }
+    }
+    let used: std::collections::HashSet<usize> = idx.iter().copied().collect();
+    let old = match mesh.attribute(Mesh::ATTRIBUTE_NORMAL) {
+        Some(VertexAttributeValues::Float32x3(v)) => v.clone(),
+        _ => vec![[0.0, 1.0, 0.0]; pos.len()],
+    };
+    let normals: Vec<[f32; 3]> = (0..pos.len())
+        .map(|v| if used.contains(&v) { acc[group[v]].normalize_or(Vec3::from(old[v])).to_array() } else { old[v] })
+        .collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    if mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some() {
+        let _ = mesh.generate_tangents();
+    }
+    true
+}
+
 pub fn enabled() -> bool {
     std::env::var("KK_NO_FUR").is_err()
 }
@@ -137,15 +200,39 @@ fn spawn_shells(
     >,
     std_mats: Res<Assets<StandardMaterial>>,
     mut fur_mats: ResMut<Assets<FurMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut rli: Local<Option<Option<Vec<u8>>>>,
 ) {
     if !enabled() {
         return;
     }
+    let rli = rli.get_or_insert_with(|| {
+        let r = rli_alpha();
+        if r.is_none() {
+            warn!("kong/kong_fur_rli.bin missing: Kong's fur covers every vertex (face included)");
+        }
+        r
+    });
     for (e, mesh, mat, skin, parent, tf, mname) in &q {
         let Some(name) = mname.map(|n| n.0.as_str()) else { continue };
         let Some(base) = std_mats.get(&mat.0) else { continue };
+        let Some(src_mesh) = meshes.get(&mesh.0) else { continue };
         commands.entity(e).insert(FurDone);
         let Some(spec) = spec_for(name) else { continue };
+        let shell_mesh = match rli.as_deref().and_then(|r| with_fur_length(src_mesh, r)) {
+            Some(m) => {
+                let furred = m.attribute(Mesh::ATTRIBUTE_COLOR).map_or(0, |a| match a {
+                    bevy::render::mesh::VertexAttributeValues::Float32x4(v) => v.iter().filter(|c| c[3] > 0.5).count(),
+                    _ => 0,
+                });
+                info!("kong fur: {name} {} shells, {} m, {furred}/{} vertices over half length", spec.layers, spec.len, m.count_vertices());
+                meshes.add(m)
+            }
+            None => {
+                info!("kong fur: {name} {} shells, {} m (no RLI mask)", spec.layers, spec.len);
+                mesh.0.clone()
+            }
+        };
         let tex: Handle<Image> = server.load_with_settings(spec.texture, repeat_loader);
         let n = spec.layers.max(1);
         for i in 1..=n {
@@ -169,7 +256,7 @@ fn spawn_shells(
             let mut ec = commands.spawn((
                 Name::new(format!("{name}_fur{i}")),
                 FurShell,
-                Mesh3d(mesh.0.clone()),
+                Mesh3d(shell_mesh.clone()),
                 MeshMaterial3d(m),
                 *tf,
                 Visibility::default(),

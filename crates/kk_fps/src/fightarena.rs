@@ -13,6 +13,10 @@
 //! * Kong and the rex are moved with collide-and-slide against the free cells (`slide`), so neither walks
 //!   into a pillar, and the camera / Jack's vantage use the same grid.
 //!
+//! * the fighters themselves walk on a second grid flood-filled from that floor over slopes and banks (up
+//!   `STEP_UP` per metre, down `STEP_DOWN`), so Kong climbs ramps and banks instead of stopping at the edge of
+//!   the flat floor; the flat grid still picks the centre, the axis and Jack's vantage.
+//!
 //! All thresholds are `[G]`; the data they read is `[C]` render-mesh derived collision.
 
 use crate::world::LevelCollision;
@@ -48,11 +52,51 @@ pub struct FightArena {
     z0: f32,
     w: usize,
     h: usize,
+    /// where the fighters may walk: every cell reachable from the flat fight floor over steps of at most
+    /// `STEP_UP` up / `STEP_DOWN` down per metre (slopes, banks, ramps) [G]
     clear: Vec<f32>,
     floor: Vec<f32>,
+    /// the flat fight floor (height window around `yref`): picks the centre, axis and Jack's vantage
+    clear_flat: Vec<f32>,
+    floor_flat: Vec<f32>,
 }
 
 const RES: f32 = 1.0;
+/// Kong (and the rex) climb up to 0.95 m per metre (about 43 degrees) and step down 2.2 m per metre [G].
+pub const STEP_UP: f32 = 0.95;
+pub const STEP_DOWN: f32 = 2.2;
+/// a walkable cell needs this much free height above its floor (Kong's body band) [G]
+const HEADROOM: f32 = 4.0;
+
+/// Clearance grid: distance (m) from every free cell to the nearest blocked cell, brute force within 26 cells.
+fn clearance_grid(blocked: &[bool], w: usize, h: usize) -> Vec<f32> {
+    let reach = 26i32;
+    let mut clear = vec![0.0f32; w * h];
+    for j in 0..h as i32 {
+        for i in 0..w as i32 {
+            if blocked[j as usize * w + i as usize] {
+                continue;
+            }
+            let mut best = (reach * reach) as f32;
+            for dj in -reach..=reach {
+                let jj = j + dj;
+                for di in -reach..=reach {
+                    let ii = i + di;
+                    let d2 = (di * di + dj * dj) as f32;
+                    if d2 >= best {
+                        continue;
+                    }
+                    let b = ii < 0 || jj < 0 || ii >= w as i32 || jj >= h as i32 || blocked[jj as usize * w + ii as usize];
+                    if b {
+                        best = d2;
+                    }
+                }
+            }
+            clear[j as usize * w + i as usize] = best.sqrt() * RES;
+        }
+    }
+    clear
+}
 
 impl FightArena {
     pub fn build(level: &LevelCollision, spec: &ArenaSpec) -> Self {
@@ -91,32 +135,9 @@ impl FightArena {
                 }
             }
         }
-        // clearance: distance to the nearest blocked cell, brute force within 26 cells
-        let reach = 26i32;
-        let mut clear = vec![0.0f32; w * h];
-        for j in 0..h as i32 {
-            for i in 0..w as i32 {
-                if blocked[j as usize * w + i as usize] {
-                    continue;
-                }
-                let mut best = (reach * reach) as f32;
-                for dj in -reach..=reach {
-                    let jj = j + dj;
-                    for di in -reach..=reach {
-                        let ii = i + di;
-                        let d2 = (di * di + dj * dj) as f32;
-                        if d2 >= best {
-                            continue;
-                        }
-                        let b = ii < 0 || jj < 0 || ii >= w as i32 || jj >= h as i32 || blocked[jj as usize * w + ii as usize];
-                        if b {
-                            best = d2;
-                        }
-                    }
-                }
-                clear[j as usize * w + i as usize] = best.sqrt() * RES;
-            }
-        }
+        let clear_flat = clearance_grid(&blocked, w, h);
+        let (walk_blocked, walk_floor) = Self::walk_grid(level, spec, &blocked, &floor, (x0, z0, w, h));
+        let clear = clearance_grid(&walk_blocked, w, h);
         let mut a = Self {
             center: Vec3::ZERO,
             rot: 0.0,
@@ -131,12 +152,87 @@ impl FightArena {
             w,
             h,
             clear,
-            floor,
+            floor: walk_floor,
+            clear_flat,
+            floor_flat: floor,
         };
         a.pick_center(spec);
         a.pick_axis();
         a.pick_vantage(level);
         a
+    }
+
+    /// Flood fill from the flat fight floor: a neighbour cell is walkable when its floor (highest ground not above
+    /// the current floor + `STEP_UP`) is no more than `STEP_DOWN` below, nothing tall stands on it and no solid box
+    /// fills Kong's body band above it. Uses the full ground set (level mesh floors included where loaded).
+    fn walk_grid(level: &LevelCollision, spec: &ArenaSpec, flat_blocked: &[bool], flat_floor: &[f32], g: (f32, f32, usize, usize)) -> (Vec<bool>, Vec<f32>) {
+        let (x0, z0, w, h) = g;
+        let centre = |i: usize, j: usize| (x0 + (i as f32 + 0.5) * RES, z0 + (j as f32 + 0.5) * RES);
+        let mut boxes: Vec<Vec<u32>> = vec![Vec::new(); w * h];
+        for (k, (mn, mx)) in level.obstacles.iter().enumerate() {
+            let i0 = (((mn.x - 0.6 - x0) / RES).floor().max(0.0)) as usize;
+            let i1 = (((mx.x + 0.6 - x0) / RES).ceil().max(0.0) as usize).min(w);
+            let j0 = (((mn.z - 0.6 - z0) / RES).floor().max(0.0)) as usize;
+            let j1 = (((mx.z + 0.6 - z0) / RES).ceil().max(0.0) as usize).min(h);
+            for j in j0..j1 {
+                for i in i0..i1 {
+                    boxes[j * w + i].push(k as u32);
+                }
+            }
+        }
+        let boxed = |c: usize, f: f32| {
+            boxes[c].iter().any(|&k| {
+                let (mn, mx) = level.obstacles[k as usize];
+                mn.y < f + HEADROOM && mx.y > f + 0.3
+            })
+        };
+        let mut floor = vec![f32::NAN; w * h];
+        let mut ok = vec![false; w * h];
+        let mut queue = std::collections::VecDeque::new();
+        for c in 0..w * h {
+            if !flat_blocked[c] {
+                ok[c] = true;
+                floor[c] = flat_floor[c];
+                queue.push_back(c);
+            }
+        }
+        let (ylo, yhi) = (spec.yref - 8.0, spec.yref + 14.0);
+        while let Some(c) = queue.pop_front() {
+            let (i, j) = ((c % w) as i32, (c / w) as i32);
+            let f0 = floor[c];
+            for (di, dj) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let (ii, jj) = (i + di, j + dj);
+                if ii < 0 || jj < 0 || ii >= w as i32 || jj >= h as i32 {
+                    continue;
+                }
+                let n = jj as usize * w + ii as usize;
+                if ok[n] {
+                    continue;
+                }
+                let (x, z) = centre(ii as usize, jj as usize);
+                let Some(f) = level.ground(x, z, f0 + STEP_UP, 0.0) else { continue };
+                if f < f0 - STEP_DOWN || f < ylo || f > yhi {
+                    continue;
+                }
+                // something taller than 1.6 m standing on the floor here (rock face, pillar, wall)
+                let top = level.ground(x, z, f + HEADROOM, 0.0).unwrap_or(f);
+                if top - f > 1.6 || boxed(n, f) {
+                    continue;
+                }
+                ok[n] = true;
+                floor[n] = f;
+                queue.push_back(n);
+            }
+        }
+        (ok.iter().map(|o| !o).collect(), floor)
+    }
+
+    fn flat_clearance(&self, x: f32, z: f32) -> f32 {
+        self.idx(x, z).map_or(0.0, |i| self.clear_flat[i])
+    }
+
+    fn flat_floor_at(&self, x: f32, z: f32) -> Option<f32> {
+        self.idx(x, z).map(|i| self.floor_flat[i]).filter(|f| f.is_finite())
     }
 
     fn idx(&self, x: f32, z: f32) -> Option<usize> {
@@ -161,7 +257,7 @@ impl FightArena {
         let mut best = (-1.0f32, 0usize);
         for j in 0..self.h {
             for i in 0..self.w {
-                let c = self.clear[j * self.w + i];
+                let c = self.clear_flat[j * self.w + i];
                 if c <= 0.0 {
                     continue;
                 }
@@ -176,8 +272,8 @@ impl FightArena {
         }
         let (j, i) = (best.1 / self.w, best.1 % self.w);
         let (x, z) = (self.x0 + (i as f32 + 0.5) * RES, self.z0 + (j as f32 + 0.5) * RES);
-        self.best_clearance = self.clear[best.1];
-        self.center = Vec3::new(x, self.floor_at(x, z).unwrap_or(spec.yref), z);
+        self.best_clearance = self.clear_flat[best.1];
+        self.center = Vec3::new(x, self.flat_floor_at(x, z).unwrap_or(spec.yref), z);
     }
 
     /// Rotate the fight plane so its x axis follows the longest free chord through the centre.
@@ -188,7 +284,7 @@ impl FightArena {
             let (dx, dz) = (a.cos() * dir, -a.sin() * dir);
             let mut s = 0.0;
             while s < self.max_radius {
-                if self.clearance(c.x + dx * s, c.z + dz * s) < 2.5 {
+                if self.flat_clearance(c.x + dx * s, c.z + dz * s) < 2.5 {
                     break;
                 }
                 s += 0.5;
@@ -223,8 +319,8 @@ impl FightArena {
             let a = k as f32 / 36.0 * std::f32::consts::TAU;
             for r in [17.0f32, 20.0, 23.0, 26.0] {
                 let (x, z) = (c.x + a.cos() * r, c.z + a.sin() * r);
-                let cl = self.clearance(x, z);
-                let Some(f) = self.floor_at(x, z) else { continue };
+                let cl = self.flat_clearance(x, z);
+                let Some(f) = self.flat_floor_at(x, z) else { continue };
                 if cl < min_cl || (f - c.y).abs() > 2.5 {
                     continue;
                 }
@@ -289,6 +385,26 @@ impl FightArena {
             }
         }
         p
+    }
+
+    /// Highest walkable floor above the fight centre within the fight radius (m): how far up slopes and banks the
+    /// fighters can go (0 = the old flat-only arena).
+    pub fn climb(&self) -> f32 {
+        let mut best = 0.0f32;
+        for j in 0..self.h {
+            for i in 0..self.w {
+                let c = j * self.w + i;
+                if self.clear[c] < 1.6 || !self.floor[c].is_finite() {
+                    continue;
+                }
+                let (x, z) = (self.x0 + (i as f32 + 0.5) * RES, self.z0 + (j as f32 + 0.5) * RES);
+                if Vec2::new(x - self.center.x, z - self.center.z).length() > self.max_radius {
+                    continue;
+                }
+                best = best.max(self.floor[c] - self.center.y);
+            }
+        }
+        best
     }
 
     /// PGM dump of the clearance grid (debug: `KK_ARENA_DUMP=<file>.pgm`).
