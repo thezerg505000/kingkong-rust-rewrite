@@ -26,13 +26,27 @@ struct ScopeOverlay;
 
 pub struct HudPlugin;
 
+/// F8: put the whole slice back (Jack, V-Rex, raptors/compies, Kong fight, destructible wall, spears,
+/// bone piles). Nothing respawns by itself.
+#[derive(Event, Clone, Copy, Debug, Default)]
+pub struct RespawnAll;
+
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::Playing), spawn_hud)
+        app.add_event::<RespawnAll>()
+            .add_systems(OnEnter(GameState::Playing), spawn_hud)
             .add_systems(
                 Update,
-                (update_hud, respawn, clean_hud, scope_view).chain().after(crate::rex::RexSet).run_if(in_state(GameState::Playing)),
+                (respawn_key, update_hud, respawn, clean_hud, scope_view).chain().after(crate::rex::RexSet).run_if(in_state(GameState::Playing)),
             );
+    }
+}
+
+fn respawn_key(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut out: EventWriter<RespawnAll>) {
+    // (pad Select is the Jack <-> Kong switch: respawn-all is D-pad up)
+    if keys.just_pressed(KeyCode::F8) || gamepads.iter().any(|g| g.just_pressed(GamepadButton::DPadUp)) {
+        info!("F8: respawning everything");
+        out.write(RespawnAll);
     }
 }
 
@@ -249,7 +263,7 @@ fn update_hud(
         t.0 = format!(
             "Jack: {:?}{}{}  speed {:.2} m/s\n{}\narms clip: {}{}\nrex clip: {}\nshots {}  hits {}{}\n\
              WASD move  Shift run  C crouch  RMB aim  LMB fire  R reload  1-4/wheel weapons\n\
-             F1 arm clips  F2 mortal V-Rex  F3 hit spheres  F5 hide HUD  Esc free mouse  Enter respawn",
+             F1 arm clips  F2 mortal V-Rex  F3 hit spheres  F5 hide HUD  F8 respawn all  E pick up  G drop spear  Esc free mouse  Enter get up",
             p.wounds.state,
             if p.crouch { " crouched" } else { "" },
             if p.aiming { " aiming" } else { "" },
@@ -306,22 +320,23 @@ fn update_hud(
 fn respawn(
     keys: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
+    mut all: EventReader<RespawnAll>,
     mut players: Query<(&mut Player, &mut Transform), Without<Rex>>,
     mut rex: Query<(&mut Rex, &mut Transform), Without<Player>>,
     settings: Res<RexSettings>,
     mut arsenal: ResMut<Arsenal>,
     arena: Res<crate::world::Arena>,
 ) {
+    let everything = all.read().count() > 0;
     let Ok((mut p, mut ptf)) = players.single_mut() else { return };
-    let Ok((mut r, mut rtf)) = rex.single_mut() else { return };
-    let rex_dead = matches!(r.state, RexState::Dead { .. });
     let pressed = keys.just_pressed(KeyCode::Enter)
         || gamepads.iter().any(|g| g.just_pressed(GamepadButton::Start));
-    let can = !p.alive() && p.wounds.dead_time > DEATH_SEQUENCE_S * 0.5 || rex_dead || pressed;
     // H_ETAT_IA_mort: the checkpoint restart is requested once Jack has been in the death state for 4.0 s
-    // (hard timeout 8.0 s); Enter / Start restarts earlier [C]
+    // (hard timeout 8.0 s); Enter / Start restarts earlier [C]. Only Jack gets up: the creatures stay as
+    // they are until F8.
     let auto = p.wounds.restart_due();
-    if !((pressed && can) || auto) {
+    let jack_up = !p.alive() && ((pressed && p.wounds.dead_time > DEATH_SEQUENCE_S * 0.5) || auto);
+    if !(everything || jack_up) {
         return;
     }
     // Stats_OnPlayerDeath counts the death (the wound timers shrink with it); the counter survives the respawn
@@ -333,12 +348,17 @@ fn respawn(
     *p = Player::new();
     p.wounds = w;
     p.yaw = arena.player_yaw;
-    ptf.translation = arena.player_spawn;
-    *r = Rex::new(if settings.mortal { REX_HP_MORTAL } else { REX_HP });
-    r.yaw = arena.rex_yaw;
-    rtf.translation = arena.rex_spawn;
-    rtf.rotation = Quat::from_rotation_y(arena.rex_yaw);
+    ptf.translation = arena.settle(arena.player_spawn, 0.35);
     arsenal.refill();
+    if !everything {
+        return;
+    }
+    if let Ok((mut r, mut rtf)) = rex.single_mut() {
+        *r = Rex::new(if settings.mortal { REX_HP_MORTAL } else { REX_HP });
+        r.yaw = arena.rex_yaw;
+        rtf.translation = arena.rex_spawn;
+        rtf.rotation = Quat::from_rotation_y(arena.rex_yaw);
+    }
 }
 
 /// F5 / test batches: hide every HUD element (the original game shows no HUD during play).

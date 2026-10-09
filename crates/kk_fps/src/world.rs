@@ -32,9 +32,41 @@ pub struct LevelCollision {
     pub boxes: Vec<(Vec3, Vec3)>,
     /// every solid object box (rocks, ruins, props, trunks) up to 40 m wide: arena clearance and camera rays
     pub obstacles: Vec<(Vec3, Vec3)>,
+    /// names of `boxes` (the breakable ODE pieces are switched off by name when broken)
+    pub box_names: Vec<String>,
+    /// steep faces of the level's opaque meshes (meshcol.rs): Jack's walls
+    pub walls: Option<crate::meshcol::WallMesh>,
 }
 
 const CELL: f32 = 4.0;
+
+/// A breakable ODE structure of the level: its physics pieces (`LD_03E_ODE_*` GAOs, hidden while
+/// intact) and the box the intact stones occupy in the façade mesh (which draws them while intact).
+pub struct BreakDef {
+    pub key: &'static str,
+    /// the façade mesh also draws the intact stones (cut them out when broken)
+    pub cut_facade: bool,
+    pub prefixes: &'static [&'static str],
+    pub lo: Vec3,
+    pub hi: Vec3,
+}
+
+/// 03E breakables [C names / boxes from the level's GAOs and the exported collision boxes]:
+/// the courtyard gate (5 blocks, `LD_03E_Activate_ODE_Porte` trigger in front of it), the corridor wall
+/// before CHK03 (Base / Top / Mid / Hat rows) and the entrance lintel the rex smashes.
+pub const BREAKABLES: [BreakDef; 3] = [
+    BreakDef { key: "porte", cut_facade: false, prefixes: &["LD_03E_ODE_block"], lo: Vec3::new(44.7, 3.5, -102.3), hi: Vec3::new(51.4, 13.4, -98.8) },
+    BreakDef { key: "couloir", cut_facade: false, prefixes: &["LD_03E_ODE_Base_", "LD_03E_ODE_Top_", "LD_03E_ODE_Mid_", "LD_03E_ODE_Hat_"], lo: Vec3::new(31.4, 4.3, -137.2), hi: Vec3::new(39.6, 9.8, -135.7) },
+    BreakDef { key: "entree", cut_facade: false, prefixes: &["LD_03E_ODE_Entree"], lo: Vec3::new(30.0, 8.7, -66.9), hi: Vec3::new(40.2, 16.0, -64.8) },
+];
+
+pub fn breakable_of_name(name: &str) -> Option<usize> {
+    BREAKABLES.iter().position(|b| b.prefixes.iter().any(|p| name.contains(p)))
+}
+
+pub fn breakable_of_point(p: Vec3) -> Option<usize> {
+    BREAKABLES.iter().position(|b| p.cmpge(b.lo).all() && p.cmple(b.hi).all())
+}
 
 impl LevelCollision {
     fn load(path: &std::path::Path) -> Option<Self> {
@@ -58,7 +90,7 @@ impl LevelCollision {
                 }
             }
         }
-        let boxes = v["boxes"]
+        let named: Vec<((Vec3, Vec3), String)> = v["boxes"]
             .as_array()
             .map(|a| {
                 a.iter()
@@ -69,11 +101,15 @@ impl LevelCollision {
                         // passages, cliffs) are left to the ground-coverage boundary
                         // the swamp scenes hide the ODE breakables (swamp.rs), so they must not collide either
                         let hidden_ode = crate::scene::swamp() && b["klass"] == "ode";
-                        (!hidden_ode && b["role"] == "obj" && !b["name"].as_str().unwrap_or("").contains("OCL_") && s.x < 6.0 && s.z < 6.0 && s.y > 0.8).then_some((mn, mx))
+                        let name = b["name"].as_str().unwrap_or("").to_string();
+                        let ode = b["klass"] == "ode" || name.contains("_ODE_");
+                        (!hidden_ode && (b["role"] == "obj" || ode) && !name.contains("OCL_") && ((s.x < 6.0 && s.z < 6.0 && s.y > 0.8) || (ode && s.x < 8.0 && s.z < 8.0))).then_some(((mn, mx), name))
                     })
                     .collect()
             })
             .unwrap_or_default();
+        let boxes: Vec<(Vec3, Vec3)> = named.iter().map(|x| x.0).collect();
+        let box_names: Vec<String> = named.into_iter().map(|x| x.1).collect();
         let obstacles = v["boxes"]
             .as_array()
             .map(|a| {
@@ -90,7 +126,25 @@ impl LevelCollision {
                     .collect()
             })
             .unwrap_or_default();
-        Some(Self { tris, grid, boxes, obstacles })
+        Some(Self { tris, grid, boxes, obstacles, box_names, walls: None })
+    }
+
+    /// Merge more walkable triangles (the level mesh's upward faces) into the ground set and its grid.
+    pub fn add_ground(&mut self, extra: Vec<[Vec3; 3]>) {
+        let n0 = self.tris.len();
+        let added = extra.len();
+        self.tris.extend(extra);
+        for i in n0..self.tris.len() {
+            let t = self.tris[i];
+            let mn = t[0].min(t[1]).min(t[2]);
+            let mx = t[0].max(t[1]).max(t[2]);
+            for gx in (mn.x / CELL).floor() as i32..=(mx.x / CELL).floor() as i32 {
+                for gz in (mn.z / CELL).floor() as i32..=(mx.z / CELL).floor() as i32 {
+                    self.grid.entry((gx, gz)).or_default().push(i as u32);
+                }
+            }
+        }
+        info!("ground: +{added} upward faces from the level mesh ({} total)", self.tris.len());
     }
 
     /// First solid along the ray from `o` along `d` (unit), up to `max` metres: below the ground, inside a solid
@@ -167,6 +221,8 @@ pub struct Arena {
     pub player_yaw: f32,
     pub rex_spawn: Vec3,
     pub rex_yaw: f32,
+    /// per `BREAKABLES` entry: broken (its boxes and wall faces stop blocking)
+    pub broken: Vec<bool>,
 }
 
 impl Arena {
@@ -193,6 +249,7 @@ impl Arena {
             player_yaw: 0.0,
             rex_spawn: Vec3::new(0.0, 0.0, -40.0),
             rex_yaw: 0.0,
+            broken: vec![false; BREAKABLES.len()],
         }
     }
 
@@ -211,6 +268,7 @@ impl Arena {
             player_yaw: 0.0,
             rex_spawn: Vec3::new(0.0, 0.0, -4000.0),
             rex_yaw: 0.0,
+            broken: vec![false; BREAKABLES.len()],
         }
     }
 
@@ -265,21 +323,41 @@ impl Arena {
             q.y = 0.0;
             return q;
         };
-        for (mn, mx) in &level.boxes {
-            if p.y + 1.5 < mn.y || p.y > mx.y {
+        // Jack's body: feet + a 0.55 m step [G], 1.75 m tall
+        const STEP: f32 = 0.55;
+        const HEIGHT: f32 = 1.75;
+        p.y = old.y;
+        let mut stand: Option<f32> = None;
+        for (k, (mn, mx)) in level.boxes.iter().enumerate() {
+            let off = level.box_names.get(k).and_then(|n| breakable_of_name(n)).is_some_and(|g| self.broken.get(g).copied().unwrap_or(false));
+            if off || p.y + HEIGHT < mn.y || p.y > mx.y {
                 continue;
             }
             let cx = p.x.clamp(mn.x, mx.x);
             let cz = p.z.clamp(mn.z, mx.z);
             let d = Vec2::new(p.x - cx, p.z - cz);
             let l = d.length();
+            // a box whose top is within a step is stood on (steps, plinths, low blocks)
+            if mx.y <= old.y + STEP {
+                if l < 1e-4 {
+                    stand = Some(stand.map_or(mx.y, |s: f32| s.max(mx.y)));
+                }
+                continue;
+            }
             if l < r {
                 let n = if l > 1e-4 { d / l } else { Vec2::X };
                 p.x = cx + n.x * r;
                 p.z = cz + n.y * r;
             }
         }
-        match level.ground(p.x, p.z, old.y, 1.0) {
+        if let Some(w) = &level.walls {
+            p = w.push_out(p, r, STEP, HEIGHT, &self.broken);
+        }
+        let ground = match (level.ground(p.x, p.z, old.y, STEP + 0.05), stand) {
+            (Some(g), Some(s)) => Some(g.max(s)),
+            (g, s) => g.or(s),
+        };
+        match ground {
             Some(y) => {
                 p.y = y;
                 p
@@ -287,16 +365,29 @@ impl Arena {
             None => {
                 // slide along the boundary: try each axis on its own
                 let px = Vec3::new(p.x, old.y, old.z);
-                if let Some(y) = level.ground(px.x, px.z, old.y, 1.0) {
+                if let Some(y) = level.ground(px.x, px.z, old.y, STEP + 0.05) {
                     return Vec3::new(px.x, y, px.z);
                 }
                 let pz = Vec3::new(old.x, old.y, p.z);
-                if let Some(y) = level.ground(pz.x, pz.z, old.y, 1.0) {
+                if let Some(y) = level.ground(pz.x, pz.z, old.y, STEP + 0.05) {
                     return Vec3::new(pz.x, y, pz.z);
                 }
                 old
             }
         }
+    }
+
+    /// Run `p` through Jack's collision until it stops moving (spawn / vantage points that start inside
+    /// a wall face are pushed out once, instead of drifting while Jack stands still).
+    pub fn settle(&self, mut p: Vec3, r: f32) -> Vec3 {
+        for _ in 0..240 {
+            let q = self.move_to(p, p, r);
+            if q.distance(p) < 1e-3 {
+                return q;
+            }
+            p = q;
+        }
+        p
     }
 
     /// Push a circle of radius `r` (on the ground plane) out of pillars and the arena wall.
@@ -337,7 +428,16 @@ impl Arena {
                     take(t, if n.dot(d) > 0.0 { -n } else { n });
                 }
             }
-            for (mn, mx) in &level.boxes {
+            if let Some(w) = &level.walls {
+                if let Some((t, n)) = w.ray(o, d, max, &self.broken) {
+                    take(t, n);
+                }
+            }
+            for (k, (mn, mx)) in level.boxes.iter().enumerate() {
+                let off = level.box_names.get(k).and_then(|n| breakable_of_name(n)).is_some_and(|g| self.broken.get(g).copied().unwrap_or(false));
+                if off {
+                    continue;
+                }
                 if let Some((t, n)) = ray_aabb(o, d, *mn, *mx) {
                     take(t, n);
                 }
@@ -371,7 +471,7 @@ impl Arena {
     }
 }
 
-fn ray_tri(o: Vec3, d: Vec3, t: &[Vec3; 3]) -> Option<f32> {
+pub(crate) fn ray_tri(o: Vec3, d: Vec3, t: &[Vec3; 3]) -> Option<f32> {
     let e1 = t[1] - t[0];
     let e2 = t[2] - t[0];
     let p = d.cross(e2);
@@ -424,7 +524,17 @@ impl Plugin for WorldPlugin {
             info!("arena: test area (KK_SCENE=testarea)");
             Arena::testarea()
         } else { match LevelCollision::load(&dir.join(crate::scene::level_collision())) {
-            Some(l) if dir.join(crate::scene::level_glb()).exists() && std::env::var("KK_STAND_IN").is_err() => {
+            Some(mut l) if dir.join(crate::scene::level_glb()).exists() && std::env::var("KK_STAND_IN").is_err() => {
+                // the 03E slice only: the swamp fights keep their tuned arenas (KK_WALLS=1 forces it on)
+                if std::env::var("KK_NO_WALLS").is_err() && (!crate::scene::swamp() || std::env::var("KK_WALLS").is_ok()) {
+                    let t0 = std::time::Instant::now();
+                    l.walls = crate::meshcol::WallMesh::load(&dir.join(crate::scene::level_glb()));
+                    if let Some(w) = l.walls.as_mut() {
+                        let extra = std::mem::take(&mut w.floor);
+                        l.add_ground(extra);
+                    }
+                    info!("level walls: {} steep triangles from the level mesh ({:.2} s)", l.walls.as_ref().map_or(0, |w| w.tris.len()), t0.elapsed().as_secs_f32());
+                }
                 info!("arena: original level {} ({} ground tris, {} solid boxes, {} obstacles)", match crate::scene::swamp_level() { Some(crate::scene::Swamp::L05C) => "05C marsh", Some(_) => "07D swamp", None => "03E" }, l.tris.len(), l.boxes.len(), l.obstacles.len());
                 if crate::scene::swamp() { Arena::level07d(l) } else { Arena::level03e(l) }
             }
@@ -659,7 +769,9 @@ fn on_level_ready(
         // with the cloud layer (sky.rs) on, ENV_Ciel is replaced by the same texture on an
         // unfogged camera-following sphere so the sun gap can feed the god ray
         let replaced_sky = sky && crate::sky::enabled();
-        if mist || replaced_sky || name.contains("ENV_Ciel2") || name.contains("LD_03E_ODE_") {
+        // LD_03E_ODE_*: the breakable pieces ARE what the level draws of the gate / walls (the façade has an
+        // opening there); breakable.rs moves them when smashed. Only the swamp scenes hide theirs.
+        if mist || replaced_sky || name.contains("ENV_Ciel2") {
             commands.entity(e).insert(Visibility::Hidden);
             continue;
         }

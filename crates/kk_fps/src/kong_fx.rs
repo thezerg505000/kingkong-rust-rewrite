@@ -172,6 +172,7 @@ pub fn kong_effects(
     mut mats: ResMut<Assets<StandardMaterial>>,
     mut shake: ResMut<CameraShake>,
     mut rumble: EventWriter<crate::fx::Rumble>,
+    mut sfx: EventWriter<crate::sfx::PlaySfx>,
     cam: Query<&GlobalTransform, With<MainCam>>,
 ) {
     let Some(fx) = fx else { return };
@@ -245,6 +246,11 @@ pub fn kong_effects(
                 splash(&mut commands, &mut mats, &fx, rp, 3.0, true);
                 c.stats.flashes += 1;
                 c.stats.splashes += 1;
+            }
+            // the rex's reaction sound slot 3 / 4 (`fn@0x00428060`) is a 07D bank entry we have not decoded;
+            // the 03E rex "hit" definition stands in [G]
+            FightEvent::RexPaf { .. } | FightEvent::RexGroundHit => {
+                sfx.write(crate::sfx::PlaySfx::at("Trex_take_shoot", rp + Vec3::Y * 3.0));
             }
             FightEvent::KongStunned { .. } => {
                 splash(&mut commands, &mut mats, &fx, kp, 1.6, false);

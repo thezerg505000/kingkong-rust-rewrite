@@ -46,6 +46,8 @@ pub struct Arsenal {
     pub recoil: f32,
     /// per shot: (rays fired, impacts on any surface or the rex, rays that hit nothing); G11 check
     pub ray_log: Vec<(u32, u32, u32)>,
+    /// spears.rs: a spear / bone is in Jack's hand (guns blocked, arms hidden)
+    pub spear_held: bool,
 }
 
 pub const SWAP_TIME: f32 = 0.55; // [G] no swap clip mapped per weapon yet
@@ -68,6 +70,7 @@ impl Default for Arsenal {
             debug_clip: None,
             recoil: 0.0,
             ray_log: Vec::new(),
+            spear_held: false,
         }
     }
 }
@@ -164,7 +167,7 @@ fn weapon_input(
     hitbox: Res<RexHitbox>,
     mut dmg: EventWriter<RexDamage>,
     mut gun: EventWriter<crate::events::GunEvent>,
-    rigs: Res<Rigs>,
+    (rigs, spheres): (Res<Rigs>, Option<Res<crate::creatures::CreatureSpheres>>),
     arms: Query<&ArmsRig, With<ArmsScene>>,
     gts: Query<&GlobalTransform>,
 ) {
@@ -176,6 +179,10 @@ fn weapon_input(
     arsenal.cooldown = (arsenal.cooldown - dt).max(0.0);
     arsenal.recoil = (arsenal.recoil - dt * 9.0).max(0.0);
     if !p.alive() {
+        return;
+    }
+    // a spear in hand blocks the gun until it is thrown or dropped (`Jack_IsNonFirearmHeld`, I03) [C]
+    if arsenal.spear_held {
         return;
     }
 
@@ -340,7 +347,14 @@ fn weapon_input(
             (0.0, 0.0)
         };
         let dir = (fwd + right * ax.tan() + up * ay.tan()).normalize();
-        let world_t = arena.raycast(origin, dir, w.range());
+        let mut world_t = arena.raycast(origin, dir, w.range());
+        // a creature in front of the wall takes the bullet (creatures.rs spawns its flesh impact)
+        if let Some(cs) = spheres.as_ref() {
+            let creature_t = cs.0.iter().filter_map(|(c, r)| ray_sphere(origin, dir, *c, *r)).filter(|t| *t <= w.range()).fold(f32::MAX, f32::min);
+            if creature_t < world_t.map_or(f32::MAX, |x| x.0) {
+                world_t = None;
+            }
+        }
         let mut rex_t: Option<(f32, &'static str)> = None;
         if hitbox.alive {
             for (c, r, bone) in &hitbox.spheres {

@@ -291,6 +291,158 @@ pub fn charge_min_distance(kong_faces_rex: bool, kong_mashing: bool) -> f32 {
     }
 }
 
+// ---- hit reaction (fn@0x0055a020, called by KT_ETAT_paf on entry and on every new hit) ----------
+
+/// What the rex plays when a blow lands (`fn@0x0055a020`) [C].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PafReaction {
+    /// KT anim id (`ANIM_Play(rex, 0xa0000000 | id)`)
+    pub anim: u32,
+    /// rex sound slot (`fn@0x00428060(rex, n)`): 3 = light, 4 = heavy
+    pub sound: u32,
+    /// `Rex+0xae8` / `+0xaec` [C value, meaning L: a decaying hit weight read by the reflex]
+    pub recoil: f32,
+    /// the reaction turns the rex to face the attacker and carries the clip's 5 m shove (anim 0x33)
+    pub face_attacker: bool,
+}
+
+/// `fn@0x0055a020`. `flags` = hit class bits (`Rex+0x2d0`), `h_back` = dot(rex back axis `Obj+Y`,
+/// blow direction), `h_left` = dot(rex left axis `Obj+X`, blow direction). The blow direction is the
+/// attacker -> rex vector (`Rex+0x2ac`). Returns None for the classes that start the KO instead
+/// (flag 0x40, life <= 0), which `KT_ETAT_paf` then hands to `KO_au_sol`.
+///
+/// Axis check [L]: in the KT clips the rex walks toward Jade -Y (kt_0x01 root displacement -6.6 m),
+/// so `Obj+Y` is its back and `Obj+X` its left; anim 0x65 leans the pelvis toward -X (right) and 0x66
+/// is its mirror, matching "blow travelling to the right -> 0x65".
+pub fn paf_reaction(flags: u32, life_left: bool, h_back: f32, h_left: f32, attacker_is_target: bool) -> Option<PafReaction> {
+    if !life_left || flags & 0x40 != 0 {
+        return None;
+    }
+    let side = |front: u32, back: u32, right: u32, left: u32| {
+        if h_back > 0.866_025_4 {
+            front
+        } else if h_back < -0.707_106_77 {
+            back
+        } else if h_left <= 0.0 {
+            right
+        } else {
+            left
+        }
+    };
+    let (anim, sound, face) = if flags & 0x10 != 0 {
+        (0x6c, 3, false)
+    } else if flags & 0x08 != 0 {
+        (0x33, 4, true)
+    } else if flags & 0x02 != 0 {
+        (side(0x67, 0x64, 0x65, 0x66), 4, false)
+    } else if flags & 0x01 != 0 {
+        (side(0x6b, 0x68, 0x69, 0x6a), 3, false)
+    } else {
+        return None;
+    };
+    let recoil = match anim {
+        0x1d | 0x27 => 0.3,
+        0x33 => 0.475,
+        0x64..=0x67 => 0.06,
+        0x6c => 0.0,
+        _ if attacker_is_target => 0.1,
+        _ => 0.2,
+    };
+    Some(PafReaction { anim, sound, recoil, face_attacker: face })
+}
+
+/// The reaction clip is stretched to `frames * rand(0.9, 1.9)` (`fn@0x0041c450(0.9, 1.9)` then
+/// `fn@0x004258b0`) [C numbers, L that the value is the play length]: playback speed = 1 / r.
+pub fn paf_speed(r01: f32) -> f32 {
+    1.0 / (0.9 + r01.clamp(0.0, 1.0))
+}
+
+/// Play length in 60 Hz frames (clip frames x 64 / speed byte) of the KT (Kong-level V-Rex) clips the fight drives, from the J_PNJ_KTREX_2 action
+/// kit (07D record 4600 -> TRL frame counts) [C].
+pub fn kt_anim_frames(id: u32) -> f32 {
+    kt_clip_frames(id) * 64.0 / kt_anim_speed_byte(id)
+}
+
+/// Kit item speed byte b2 (playback speed b2/64, `ANIM_GetBaseSpeed`) of the KT clips that do not
+/// play at 64 [C].
+pub fn kt_anim_speed_byte(id: u32) -> f32 {
+    match id {
+        0x03 => 50.0,
+        0x09 => 56.0,
+        0x05 | 0x0e | 0x0f | 0x29 | 0x4b | 0x4d | 0x91 | 0x93 => 48.0,
+        0x5b | 0x5d | 0x5e | 0x74 => 128.0,
+        0x6f => 80.0,
+        _ => 64.0,
+    }
+}
+
+/// Clip length in clip frames (TRL) [C].
+pub fn kt_clip_frames(id: u32) -> f32 {
+    match id {
+        0x00 => 108.0,
+        0x01 => 84.0,
+        0x03 => 46.0,
+        0x04 => 114.0,
+        0x05 => 34.0,
+        0x0c => 97.0,
+        0x0e => 103.0,
+        0x15 => 30.0,
+        0x16 => 129.0,
+        0x17 => 252.0,
+        0x1c => 50.0,
+        0x1d => 63.0,
+        0x1e => 93.0,
+        0x23 => 216.0,
+        0x24 => 217.0,
+        0x6e => 137.0,
+        0x20 | 0x21 | 0x22 => 50.0,
+        0x26 => 40.0,
+        0x2c => 112.0,
+        0x33 => 47.0 + 64.0,
+        0x37 => 346.0,
+        0x38 => 214.0,
+        0x39 => 99.0,
+        0x3c => 238.0,
+        0x64..=0x6c => 35.0,
+        0x7a => 151.0,
+        0x8d => 116.0,
+        0x92 => 105.0,
+        0x94 => 71.0,
+        _ => 60.0,
+    }
+}
+
+/// `KT_ETAT_KO_au_sol` entry: the fall clip, chosen from the previous state (`Rex+0x3ac`) and the
+/// current clip [C]: from `charge` 0x16, from `chute` 0x26, after a slam (0x8d / 0xa1) straight to the
+/// lying loop 0x3c, from `grabbed` the get-up 0x1e, a knock flag (`+0x2cc`, set by the 0x33 reaction)
+/// 0x22 / 0x21 by side, otherwise 0x16.
+pub fn ko_fall_anim(prev: KtState, cur_anim: u32, knocked: bool, h_left: f32) -> u32 {
+    if prev == KtState::JumpAttak || cur_anim == 0x15 {
+        0x3c
+    } else if prev == KtState::Charge {
+        0x16
+    } else if prev == KtState::Chute {
+        0x26
+    } else if cur_anim == 0x8d || cur_anim == 0xa1 {
+        0x3c
+    } else if knocked {
+        if h_left >= 0.0 { 0x22 } else { 0x21 }
+    } else if prev == KtState::Grabbed {
+        0x1e
+    } else {
+        0x16
+    }
+}
+
+/// Knock-back impulse of a damaging blow, m/s (`KT_exec_check_paf`: 8.0 into `fn@0x006e4970`) [C].
+pub const KNOCKBACK_SPEED: f32 = 8.0;
+
+/// KO clip loop: lying 0x3c until the hold runs out, then the get-up 0x1e [C].
+pub const KO_LIE_ANIM: u32 = 0x3c;
+pub const KO_GETUP_ANIM: u32 = 0x1e;
+/// `KT_ETAT_mort`: 0x15 then 0x1c [C] (after the jaw-break the rex is already in 0x38).
+pub const MORT_ANIMS: [u32; 2] = [0x15, 0x1c];
+
 // ---- knockdown / finishers ----------------------------------------------------------------------
 
 /// Knocked-down hold time: `Rex+0x2e0 - 0.25` normally, 2.0 if knocked down before (`KT_ETAT_KO_au_sol`).
@@ -463,6 +615,8 @@ pub struct KtInput {
     pub hit_by_ann: bool,
     /// the hit carried flag 0x20000 (kill hit) - used in KO
     pub kill_hit: bool,
+    /// in `KO_au_sol`, the current clip is the get-up 0x1e
+    pub ko_getting_up: bool,
     /// a wall/obstacle was struck while charging
     pub charge_blocked: bool,
     /// `Rex+0x390 == 1`: charge has been stopped
@@ -502,6 +656,7 @@ impl Default for KtInput {
             counter_due: false,
             hit_by_ann: false,
             kill_hit: false,
+            ko_getting_up: false,
             charge_blocked: false,
             charge_stopped: false,
             grab_anim: 0,
@@ -744,6 +899,11 @@ impl KtMachine {
                 if self.life.is_dead() {
                     return self.start_ko();
                 }
+                // a new blow while reeling restarts the reaction (`fn@0x0055a020` again) [C]
+                if i.hit {
+                    self.timer = 0.0;
+                    return s;
+                }
                 // the counter is tested while the hit animation is still playing, past frame 19
                 if !i.anim_done && i.counter_due {
                     self.last_attack = Some(AttackKind::Sweep);
@@ -763,11 +923,15 @@ impl KtMachine {
                     Some(GrabMsg::Grab) => return self.enter(KtState::Grabbed),
                     None => {}
                 }
+                // a blow on the lying rex plays the ground hit 0x20 and stays down; only a blow during
+                // the get-up 0x1e sends it to `paf` (KT_ETAT_KO_au_sol after KT_exec_check_paf) [C]
                 if i.hit {
                     if i.kill_hit {
                         return self.enter(KtState::Mort);
                     }
-                    return self.enter(KtState::Paf);
+                    if i.ko_getting_up {
+                        return self.enter(KtState::Paf);
+                    }
                 }
                 self.ko_left -= i.dt;
                 if self.ko_left <= 0.0 && i.anim_done {

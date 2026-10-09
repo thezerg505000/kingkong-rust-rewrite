@@ -129,7 +129,7 @@ fn spawn_player(mut commands: Commands, rigs: Res<Rigs>, arena: Res<Arena>) {
         .spawn((
             Name::new("Jack"),
             jack,
-            Transform::from_translation(arena.player_spawn),
+            Transform::from_translation(arena.settle(arena.player_spawn, 0.35)),
             Visibility::default(),
         ))
         .id();

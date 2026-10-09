@@ -38,6 +38,10 @@ pub enum Act {
     KeyHold(KeyCode, bool),
     /// Kong batches: stand Jack at world (x, z), on the ground
     PlaceJack { x: f32, z: f32 },
+    /// any batch: stand Jack at world (x, z) on the ground, facing `yaw`
+    JackAt { x: f32, z: f32, yaw: f32 },
+    /// smash a breakable (`world::BREAKABLES` key) as a Kong blow would
+    Break(&'static str),
     End,
 }
 
@@ -225,6 +229,81 @@ pub const BATCHES: &[Batch] = &[
         ],
     },
     Batch {
+        name: "b11_gate_walk",
+        reference: "level03e gate LD_03E_ODE_block01..05",
+        about: "Jack walks into the courtyard gate (blocked by the intact ODE blocks and the façade), the gate is smashed (the same break a Kong blow triggers), Jack walks through it; plus a walk up the gate's stone steps (DEC_C_EscalierPorte) and along a ruin wall (mesh wall faces)",
+        script: &[
+            (0.0, Act::JackAt { x: 48.0, z: -93.5, yaw: 0.0 }),
+            (0.2, Act::RexState(RexForce::Hold)),
+            (0.6, Act::Shot("gate_closed")),
+            (0.8, Act::Mark("walk1")),
+            (0.8, Act::KeyHold(KeyCode::KeyW, true)),
+            (4.0, Act::KeyHold(KeyCode::KeyW, false)),
+            (4.1, Act::Mark("blocked")),
+            (4.2, Act::Break("porte")),
+            (4.6, Act::Shot("gate_smash")),
+            (6.5, Act::Shot("gate_broken")),
+            (6.6, Act::Mark("walk2")),
+            (6.6, Act::KeyHold(KeyCode::KeyW, true)),
+            (9.8, Act::KeyHold(KeyCode::KeyW, false)),
+            (9.9, Act::Mark("through")),
+            (10.0, Act::Shot("through")),
+            // stairs: from the courtyard floor up the steps in front of the gate (DEC_C_EscalierPorte, 36.3, -99.8)
+            (10.2, Act::JackAt { x: 36.3, z: -92.8, yaw: 0.0 }),
+            (10.4, Act::Mark("stairs0")),
+            (10.4, Act::KeyHold(KeyCode::KeyW, true)),
+            (12.6, Act::KeyHold(KeyCode::KeyW, false)),
+            (12.7, Act::Mark("stairs1")),
+            (12.8, Act::Shot("stairs")),
+            // a ruin wall: walk west into murcass01_A (x 10..31 at z -100) from the courtyard
+            (13.0, Act::JackAt { x: 33.5, z: -100.0, yaw: std::f32::consts::FRAC_PI_2 }),
+            (13.2, Act::Mark("wall0")),
+            (13.2, Act::KeyHold(KeyCode::KeyW, true)),
+            (16.2, Act::KeyHold(KeyCode::KeyW, false)),
+            (16.3, Act::Mark("wall1")),
+            (16.4, Act::Shot("wall")),
+            // the corridor wall before CHK03 (intact) and the entrance lintel, for a look
+            (16.6, Act::JackAt { x: 35.5, z: -130.0, yaw: 0.0 }),
+            (17.0, Act::Shot("couloir_wall")),
+            (17.2, Act::JackAt { x: 35.0, z: -73.0, yaw: std::f32::consts::PI }),
+            (17.6, Act::Pitch(0.35)),
+            (17.8, Act::Shot("entree_lintel")),
+            (18.0, Act::Pitch(0.0)),
+            (18.2, Act::End),
+        ],
+    },
+    Batch {
+        name: "b12_slice_spears",
+        reference: "level03e racks PFB_C_RackLanceSkel(01), bone pile DEC_C_OssementSquelette_01",
+        about: "Jack picks a spear from the rack (E), aims and throws it at a raptor (run with KK_RAPTOR_AT=41.8,-78), picks a bone from the bone pile, stabs, drops it (G); the spears stick, wound and bleed the raptor",
+        script: &[
+            (0.0, Act::JackAt { x: 39.3, z: -86.6, yaw: std::f32::consts::PI }),
+            (0.2, Act::RexState(RexForce::Hold)),
+            (0.6, Act::Shot("rack")),
+            (0.8, Act::Key(KeyCode::KeyE)),
+            (1.2, Act::Mark("picked")),
+            (1.3, Act::Shot("holding")),
+            (1.4, Act::JackAt { x: 41.8, z: -86.6, yaw: std::f32::consts::PI }),
+            (1.6, Act::Pitch(0.05)),
+            (1.8, Act::Aim(true)),
+            (2.6, Act::Click),
+            (2.7, Act::Mark("thrown")),
+            (2.75, Act::Shot("throw")),
+            (3.6, Act::Shot("stuck")),
+            (3.8, Act::Aim(false)),
+            (4.0, Act::JackAt { x: 56.3, z: -86.6, yaw: std::f32::consts::PI }),
+            (4.3, Act::Key(KeyCode::KeyE)),
+            (4.7, Act::Mark("bone")),
+            (4.8, Act::Shot("bone")),
+            (5.0, Act::Click),
+            (5.05, Act::Shot("stab")),
+            (5.6, Act::Key(KeyCode::KeyG)),
+            (6.0, Act::Mark("dropped")),
+            (6.2, Act::Shot("dropped")),
+            (6.5, Act::End),
+        ],
+    },
+    Batch {
         name: "b9_kong_cinema",
         reference: "kkassets/ref/video/s_0xx.jpg",
         about: "Same AI fight as b7, filmed with Kong's third-person camera (the reference clip's view): splashes, shake, close-ups",
@@ -271,6 +350,8 @@ struct Runner {
     sfx_skip: Option<usize>,
     held_keys: Vec<KeyCode>,
     done: bool,
+    /// Jack's position at every mark
+    mark_pos: Vec<(&'static str, Vec3)>,
 }
 
 /// Hides every HUD node (original game has no HUD/crosshair during play).
@@ -324,6 +405,7 @@ impl Plugin for BatchPlugin {
                 sfx_skip: None,
                 held_keys: vec![],
                 done: false,
+                mark_pos: vec![],
             })
             .add_systems(PreUpdate, drive.after(bevy::input::InputSystem).run_if(in_state(GameState::Playing)))
             .add_systems(Update, record.after(crate::rex::RexSet).run_if(in_state(GameState::Playing)));
@@ -337,18 +419,18 @@ fn drive(
     mut r: ResMut<Runner>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
-    mut players: Query<(&mut Player, &Transform), Without<Rex>>,
+    mut players: Query<(&mut Player, &mut Transform), Without<Rex>>,
     mut rex: Query<(&mut Rex, &mut Transform), Without<Player>>,
     mut arsenal: ResMut<Arsenal>,
     arena: Res<crate::world::Arena>,
-    mut exit: EventWriter<AppExit>,
+    (mut exit, mut breaks): (EventWriter<AppExit>, EventWriter<crate::breakable::BreakRequest>),
     bones: Query<&crate::rex::RexBones>,
     gts: Query<&GlobalTransform>,
     mut kong: Option<ResMut<crate::kong::KongCtl>>,
 ) {
     r.t += time.delta_secs();
     // release one-frame presses from the previous frame
-    for k in [KeyCode::KeyR, KeyCode::Tab, KeyCode::Space, KeyCode::KeyQ, KeyCode::KeyE] {
+    for k in [KeyCode::KeyR, KeyCode::Tab, KeyCode::Space, KeyCode::KeyQ, KeyCode::KeyE, KeyCode::KeyG] {
         if keys.pressed(k) && !keys.just_pressed(k) && !r.held_keys.contains(&k) {
             keys.release(k);
         }
@@ -448,6 +530,20 @@ fn drive(
             Act::Mark(m) => {
                 let t = r.t;
                 r.marks.push((m, t));
+                if let Ok((_, tf)) = players.single() {
+                    r.mark_pos.push((m, tf.translation));
+                }
+            }
+            Act::JackAt { x, z, yaw } => {
+                if let Ok((mut p, mut tf)) = players.single_mut() {
+                    let y = arena.ground_at(Vec3::new(x, tf.translation.y + 30.0, z)).unwrap_or(tf.translation.y);
+                    tf.translation = arena.settle(Vec3::new(x, y, z), 0.35);
+                    p.yaw = yaw;
+                    p.vel = Vec3::ZERO;
+                }
+            }
+            Act::Break(key) => {
+                breaks.write(crate::breakable::BreakRequest(key));
             }
             Act::Key(k) => keys.press(k),
             Act::KeyHold(k, down) => {
@@ -490,7 +586,7 @@ fn drive(
     }
     // Kong fight batches end themselves a few seconds after the fight is over
     let kong_over = r.batch.name.contains("kong_fight") || r.batch.name.contains("kong_cinema") || r.batch.name.contains("swamp_fight");
-    if kong_over && kong.as_deref().is_some_and(|k| k.over_at.is_some_and(|t| k.t > t + 3.5)) {
+    if kong_over && kong.as_deref().is_some_and(|k| k.over_at.is_some_and(|t| k.t > t + 3.5 && (!k.post_busy || k.t > t + 25.0))) {
         r.done = true;
     }
     if std::env::var("KK_BATCH_MAXT").ok().and_then(|v| v.parse::<f32>().ok()).is_some_and(|m| r.t > m) {
@@ -520,6 +616,8 @@ fn record(
     rumble: Res<RumbleLog>,
     stats: Res<FxStats>,
     kong: Option<Res<crate::kong::KongCtl>>,
+    breakables: Option<Res<crate::breakable::Breakables>>,
+    spears: Option<Res<crate::spears::SpearKit>>,
 ) {
     if !r.started {
         gun.clear();
@@ -580,7 +678,7 @@ fn record(
         r.mag_trace.push(entry);
     }
     if r.done {
-        write_report(&r, &sfx, &rumble, &stats, &shake, &arsenal, kong.as_deref());
+        write_report(&r, &sfx, &rumble, &stats, &shake, &arsenal, kong.as_deref(), breakables.as_deref(), spears.as_deref());
     }
 }
 
@@ -592,7 +690,8 @@ fn approx(a: f32, b: f32, tol: f32) -> bool {
     (a - b).abs() <= tol
 }
 
-fn write_report(r: &Runner, sfx: &SfxLog, rumble: &RumbleLog, stats: &FxStats, shake: &CameraShake, arsenal: &Arsenal, kong: Option<&crate::kong::KongCtl>) {
+#[allow(clippy::too_many_arguments)]
+fn write_report(r: &Runner, sfx: &SfxLog, rumble: &RumbleLog, stats: &FxStats, shake: &CameraShake, arsenal: &Arsenal, kong: Option<&crate::kong::KongCtl>, breakables: Option<&crate::breakable::Breakables>, spears: Option<&crate::spears::SpearKit>) {
     let path = r.out.join(format!("{}.json", r.batch.name));
     if path.exists() {
         return;
@@ -730,8 +829,51 @@ fn write_report(r: &Runner, sfx: &SfxLog, rumble: &RumbleLog, stats: &FxStats, s
             if let Some(k) = kong {
                 checks.extend(crate::kong::batch_checks(r.batch.name, k, &r.marks));
             }
+            if r.batch.name == "b7_kong_fight" {
+                if let Some(b) = breakables {
+                    let chk = |name: &str, exp: serde_json::Value, act: serde_json::Value, pass: bool| json!({"check": name, "expected": exp, "actual": act, "pass": pass});
+                    checks.push(chk("courtyard gate blocks Jack while intact (walk probe)", json!("stopped before the gate"), json!(b.probe_intact), b.probe_intact.is_some_and(|p| !p.1)));
+                    checks.push(chk("Kong smashes the courtyard gate after the victory", json!("porte"), json!(b.log), b.is_broken("porte")));
+                    checks.push(chk("Jack walks through the broken gate (walk probe)", json!("through"), json!(b.probe_broken), b.probe_broken.is_some_and(|p| p.1)));
+                }
+            }
         }
         _ => {}
+    }
+    let mp = |m: &str| r.mark_pos.iter().find(|x| x.0 == m).map(|x| x.1);
+    let chk2 = |name: &str, exp: serde_json::Value, act: serde_json::Value, pass: bool| json!({"check": name, "expected": exp, "actual": act, "pass": pass});
+    if r.batch.name == "b11_gate_walk" {
+        let (b, th) = (mp("blocked"), mp("through"));
+        checks.push(chk2("intact gate stops Jack (z of the gate face -99.8 + radius)", json!("z >= -99.7"), json!(b.map(|v| v.z)), b.is_some_and(|v| v.z >= -99.7)));
+        if let Some(bk) = breakables {
+            checks.push(chk2("gate smashed", json!("porte"), json!(bk.log), bk.is_broken("porte")));
+        }
+        checks.push(chk2("Jack walks through the broken gate", json!("z < -103"), json!(th.map(|v| v.z)), th.is_some_and(|v| v.z < -103.0)));
+        let (s0, s1) = (mp("stairs0"), mp("stairs1"));
+        checks.push(chk2(
+            "Jack climbs the gate's stone steps (DEC_C_EscalierPorte)",
+            json!("moved > 2 m and rose > 0.4 m"),
+            json!({"start": s0.map(|v| [v.x, v.y, v.z]), "end": s1.map(|v| [v.x, v.y, v.z])}),
+            matches!((s0, s1), (Some(a), Some(b)) if a.z - b.z > 2.0 && b.y - a.y > 0.4),
+        ));
+        let (w0, w1) = (mp("wall0"), mp("wall1"));
+        checks.push(chk2(
+            "a ruin wall (murcass01_A, east face x 31.3) stops Jack",
+            json!("x >= 30.8"),
+            json!({"start": w0.map(|v| [v.x, v.y, v.z]), "end": w1.map(|v| [v.x, v.y, v.z])}),
+            w1.is_some_and(|v| v.x >= 30.8) && w0.is_some(),
+        ));
+    }
+    if r.batch.name == "b12_slice_spears" {
+        if let Some(k) = spears {
+            let has = |s: &str| k.log.iter().any(|x| x.1.contains(s));
+            let log: Vec<String> = k.log.iter().map(|x| format!("{:.2} {}", x.0, x.1)).collect();
+            checks.push(chk2("spear picked from the rack (E)", json!("pickup Developed"), json!(log), has("pickup Developed")));
+            checks.push(chk2("spear thrown at 50 m/s (2.5 x 20)", json!("throw"), json!(k.log.iter().find(|x| x.1.starts_with("throw")).map(|x| x.1.clone())), has("throw Developed 50.0")));
+            checks.push(chk2("thrown spear hits the raptor or sticks in the level", json!("hit/stuck"), json!(k.log.iter().filter(|x| x.1.contains("spear ")).map(|x| x.1.clone()).collect::<Vec<_>>()), has("spear hit creature") || has("spear stuck")));
+            checks.push(chk2("bone spear taken from the bone pile", json!("pickup Bone"), json!(true), has("pickup Bone")));
+            checks.push(chk2("bone dropped (G)", json!("drop"), json!(true), has("drop")));
+        }
     }
     let passed = checks.iter().filter(|c| c["pass"] == true).count();
     let report = json!({

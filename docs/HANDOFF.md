@@ -1,3 +1,31 @@
+# UPDATE 2026-10-08 (session 3): rex reactions, jaw-break, gate, Jack collision, spears, F8
+
+- **Rex hit reactions + KO + jaw-break recovered** (`spec/evidence/KC19.md`, KC11 updated): the Kong-level rex's own
+  action kit (07D `J_PNJ_KTREX_2`, 135 clips) is exported as `trex_kt.glb` by `tools/level/export_rex_kt.py`
+  (research tool, needs the 07D loader-emulation records); `kk_fps` merges it into the rex rig and plays clips by KT
+  id from the fight's `Anim` events. Paf reaction `fn@0x55a020` (class/direction -> 0x64-0x6c/0x33, re-hit
+  restarts), knock-back 8 m/s blended out at 3/s + yaw kick (`KT_TRACK_tagon`), KO chain (fall -> lying 0x3c ->
+  get-up 0x1e, ground hit 0x20), mort 0x15->0x1c, roar 0x24/0x6e. Jaw-break: both 346-frame clips scrubbed by the
+  cursor, Kong snapped onto the rex's root/axis, 0xe8 + rex 0x38 on the win, rex dies at Kong frame 100, victory
+  pound after 0xe8. Without `trex_kt.glb` the old 03E clip names are used.
+- **Breakables** (`kk_fps/src/breakable.rs`): 03E's ODE gate (block01-05 at z -100.5), corridor wall (z -136.5) and
+  entrance lintel. A Kong blow's hit window (`FightEvent::KongSwing`), a thrown rex, or `BreakRequest` smashes one;
+  pieces fly [G physics], its boxes/wall faces stop blocking. After the victory Kong walks to the gate and punches
+  it open; Jack can then walk through (b7 + b11 walk probes).
+- **Jack collision** (`kk_fps/src/meshcol.rs`): walls from the level mesh's steep faces (capsule push-out, 0.55 m
+  step), the mesh's upward faces merged into the ground (the exported ground missed the gate steps). 03E only
+  (`KK_WALLS=1` for the swamps, `KK_NO_WALLS=1` off). Bullets and spears raycast the walls.
+- **Spears** (`kk_fps/src/spears.rs` on `kk_mechanics::spears`): two racks x 5 spears (the level's S_LanceBig mesh),
+  bone pile -> bone spears; E pick up, G drop, aim+fire throw, fire stab; spears stick in the level or ride a
+  raptor's bone (bleed). Batch `b12_slice_spears` (run with `KK_RAPTOR_AT=41.8,-78`).
+- **No auto-respawn**: F8 / D-pad up (`hud::RespawnAll`) resets Jack, rex, creatures, Kong fight, breakables, spears.
+- **Bullets on dinos**: a creature in front of a wall now stops the bullet (no stone impact behind it); the flesh
+  impact/blood FX is spawned by the creature hit [G look; the game's raptor blood hook is an empty stub].
+- New batches: `b11_gate_walk` (5 checks), `b12_slice_spears` (5). b7 has 3 more (gate probes + smash): 52/52.
+- **Gaps**: 07D sound bank (rex/Kong reaction and mash sounds), `+0xa38` (sideways KO), ODE rigid-body parameters,
+  spear arm clips (the held spear is drawn alone), rack bone layout, bone-spear model, KT locomotion root motion,
+  `trex_kt.glb` / rack prop not produced by `kk_extract` yet (Python research tools only).
+
 # UPDATE 2026-10-08 (late): Kong marsh 05C, shell fur, first release build
 
 **The reference clip is level 05C "Kong vs first T-Rex"**, not 07D (map table `KKMaps.index.tsv`: `05C_Kong_vs_first_Trex.wol` = key 0xc101eabc -> stream `ff01eabc`, bank `ff81eabc`; ambience `Amb_05C_area_c_rain`). Extracted on the PC with `tools/extract_bin.py ff01eabc` + `tex_decode.py ff81eabc`, rebuilt with the level tools (`runall.py` loader emulation clean over all 10 worlds; new `mkkeymap_lvl2.py` (KK_WORLD, KK_RECS), 234/325 anchors, 227 agree; `build_level.py` with cfg `ode_ground:false`, marsh `_eau` meshes classed as water) -> `game_assets/level05c/` (glb 40 MB, collision, bindings).

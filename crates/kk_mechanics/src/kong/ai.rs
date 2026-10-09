@@ -1029,7 +1029,9 @@ mod tests {
                 full += 1;
             }
         }
-        assert!(full >= 58, "only {full}/64 05C fights showed throw + fury + dodge");
+        // the recovered knock-back (8/3 m per blow) shortens the low-life marsh fights, so a few seeds
+        // end before the demo brain has shown every move
+        assert!(full >= 52, "only {full}/64 05C fights showed throw + fury + dodge");
     }
 
     #[test]

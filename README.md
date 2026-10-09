@@ -67,6 +67,11 @@ The `.bat` shortcuts in `scripts/windows/` (`Play_Jack_03E.bat`, `Play_Kong_Mars
 | Kong: jump / roll | Space | A / South |
 | Kong: special (repel) | Q | Y / North |
 | Kong: cancel | E | B / East |
+| Jack: pick up a spear / bone (racks, bone pile, spears on the ground) | E | A / South |
+| Jack: throw the spear (aim + fire) / stab (fire) | Right + left mouse / left mouse | LT + RT / RT |
+| Jack: drop the spear | G | Y / North |
+| Respawn everything (nothing respawns by itself) | F8 | D-pad up |
+| Jack: get up after death (checkpoint) | Enter | Start |
 
 ## Repository layout
 

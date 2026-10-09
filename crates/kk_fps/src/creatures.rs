@@ -290,7 +290,7 @@ fn mode() -> CreatureMode {
         return CreatureMode { kinds: all, slice: false };
     }
     let off = std::env::var("KK_NO_CREATURES").map(|v| v != "0").unwrap_or(false)
-        || std::env::var("KK_BATCH").is_ok()
+        || std::env::var("KK_BATCH").is_ok_and(|b| !b.contains("slice"))
         || crate::scene::swamp()
         || std::env::var("KK_AUTOTEST").is_ok();
     if off {
@@ -352,6 +352,8 @@ pub struct RaptorAi {
     pub eat_target: Option<Entity>,
     pub want: (&'static str, bool),
     pub sink: f32,
+    /// spears stuck in the body (`exec_check_javelin`: bleed per spear, max 3) — spears.rs keeps it
+    pub spears: u32,
 }
 
 #[derive(Component)]
@@ -396,6 +398,25 @@ pub struct LogEntry {
 
 #[derive(Resource, Default)]
 pub struct CreatureLog(pub Vec<LogEntry>);
+
+/// Hit spheres of the living creatures this frame (world centre, radius): weapons.rs stops a bullet's
+/// world impact at a creature in front of it (the creature shot test spawns the flesh impact).
+#[derive(Resource, Default)]
+pub struct CreatureSpheres(pub Vec<(Vec3, f32)>);
+
+fn publish_spheres(mut out: ResMut<CreatureSpheres>, q: Query<(&Creature, &CreatureRig, Option<&RaptorAi>)>, gts: Query<&GlobalTransform>) {
+    out.0.clear();
+    for (c, rig, ai) in &q {
+        if c.dead || ai.is_some_and(|a| a.m.hp <= 0.0) {
+            continue;
+        }
+        for (bone, r, _) in &rig.hit {
+            if let Ok(g) = gts.get(*bone) {
+                out.0.push((g.translation(), r * c.scale));
+            }
+        }
+    }
+}
 
 /// Impact events produced by the creature shot test, forwarded as `GunEvent::Impact` (blood fx, sounds).
 #[derive(Resource, Default)]
@@ -469,6 +490,7 @@ pub fn spawn_creature(commands: &mut Commands, assets: &CreatureAssets, kind: us
                     eat_target: None,
                     want: ("", true),
                     sink: 0.0,
+                    spears: 0,
                 });
             }
             Species::Bronto => {
@@ -641,6 +663,8 @@ impl Plugin for CreaturePlugin {
             .init_resource::<CreatureLog>()
             .init_resource::<Corpses>()
             .init_resource::<PendingImpacts>()
+            .init_resource::<CreatureSpheres>()
+            .add_systems(Update, publish_spheres.before(crate::weapons::WeaponsSet).run_if(in_state(GameState::Playing)))
             .add_systems(Startup, start_loading)
             .add_systems(Update, finish_loading)
             .add_systems(
@@ -950,7 +974,7 @@ fn raptor_ai(
             forward: fg,
             scale_override: Some(scale),
             hits: std::mem::take(&mut ai.hits),
-            spears: 0,
+            spears: ai.spears,
             anim_done,
             bite_frame,
             bite_connects,
@@ -1322,7 +1346,16 @@ fn spawn_slice_pack(
     assets: Res<CreatureAssets>,
     arena: Res<Arena>,
     mut commands: Commands,
+    mut respawn: EventReader<crate::hud::RespawnAll>,
+    existing: Query<Entity, With<Creature>>,
 ) {
+    // creatures are placed once; only F8 (RespawnAll) clears the field and places the pack again
+    if respawn.read().count() > 0 && mode.slice {
+        for e in &existing {
+            commands.entity(e).despawn();
+        }
+        *done = false;
+    }
     if *done || !mode.slice || !assets.all_ready() || assets.wanted.is_empty() {
         return;
     }
@@ -1342,6 +1375,16 @@ fn spawn_slice_pack(
         )
     };
     let mut rng = rand::thread_rng();
+    // KK_RAPTOR_AT=x,z: one more raptor there (batches / tests), facing Jack's start
+    if let Some((x, z)) = std::env::var("KK_RAPTOR_AT").ok().and_then(|v| v.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<f32>().ok()?, b.trim().parse::<f32>().ok()?)))) {
+        let y = arena.ground_at(Vec3::new(x, j.y + 20.0, z)).unwrap_or(j.y);
+        let p = Vec3::new(x, y, z);
+        let to = (j - p).normalize_or(Vec3::Z);
+        spawn_creature(&mut commands, &assets, rap, p, to.x.atan2(to.z), SpawnOpts { label: Some("raptor test".into()), ..default() });
+        info!("  test raptor at ({x:.1}, {y:.1}, {z:.1})");
+    }
+    // slice batches with a test raptor keep the field to that one raptor
+    let (pack, compies) = if std::env::var("KK_BATCH").is_ok() && std::env::var("KK_RAPTOR_AT").is_ok() { (vec![], vec![]) } else { (pack, compies) };
     info!("03E creature pack: {} raptors, {} compies (KK_NO_CREATURES=1 disables)", pack.len(), compies.len());
     for (i, mut p) in pack.into_iter().enumerate() {
         if arena.level.is_some() {

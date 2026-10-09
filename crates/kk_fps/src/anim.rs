@@ -7,6 +7,9 @@ use std::time::Duration;
 pub const ARMS_GLB: &str = "jack_fps_arms.glb";
 /// Root-motion-stripped copy of trex.glb (JadeActor travel removed, pelvis made in-place).
 pub const REX_GLB: &str = "trex_inplace.glb";
+/// The Kong-level V-Rex action kit (07D J_PNJ_KTREX_2, clips `kt_0xNN` by KT anim id) on the same
+/// skeleton, exported by kk_extract (tools2/export_rex_kt.py). Optional: merged into the rex rig.
+pub const REX_KT_GLB: &str = "trex_kt.glb";
 /// Level 03E rebuilt from the key map: every placed instance with its real Jade materials.
 pub const LEVEL_GLB: &str = "level03e/level03e_v2.glb";
 pub const LEVEL_COLLISION: &str = "level03e/level03e_v2_collision.json";
@@ -48,6 +51,8 @@ impl Rig {
 pub struct Rigs {
     pub arms: Rig,
     pub rex: Rig,
+    /// trex_kt.glb when present (KT clips merged into `rex`)
+    pub rex_kt: Option<Handle<Gltf>>,
     pub arms_scene: Handle<Scene>,
     pub rex_scene: Handle<Scene>,
     pub weapon_scenes: Vec<Handle<Scene>>,
@@ -80,6 +85,9 @@ impl Plugin for AnimPlugin {
 fn start_loading(mut rigs: ResMut<Rigs>, assets: Res<AssetServer>) {
     rigs.arms.gltf = assets.load(ARMS_GLB);
     rigs.rex.gltf = assets.load(REX_GLB);
+    if crate::asset_dir().join(REX_KT_GLB).exists() {
+        rigs.rex_kt = Some(assets.load(REX_KT_GLB));
+    }
     let lvl = crate::asset_dir().join(crate::scene::level_glb());
     if lvl.exists() && std::env::var("KK_STAND_IN").is_err() {
         rigs.level = Some(assets.load(crate::scene::level_glb()));
@@ -94,12 +102,21 @@ fn start_loading(mut rigs: ResMut<Rigs>, assets: Res<AssetServer>) {
 }
 
 fn build_rig(rig: &mut Rig, gltf: &Gltf, clips: &Assets<AnimationClip>, graphs: &mut Assets<AnimationGraph>) {
-    let mut names: Vec<String> = gltf.named_animations.keys().map(|k| k.to_string()).collect();
+    build_rig_multi(rig, &[gltf], clips, graphs);
+}
+
+/// One graph from the named clips of several glTFs sharing a skeleton (same node names, so the
+/// animation targets match); the first file wins on a name clash.
+fn build_rig_multi(rig: &mut Rig, gltfs: &[&Gltf], clips: &Assets<AnimationClip>, graphs: &mut Assets<AnimationGraph>) {
+    let mut by_name: HashMap<String, Handle<AnimationClip>> = HashMap::new();
+    for g in gltfs {
+        for (k, h) in g.named_animations.iter() {
+            by_name.entry(k.to_string()).or_insert_with(|| h.clone());
+        }
+    }
+    let mut names: Vec<String> = by_name.keys().cloned().collect();
     names.sort();
-    let handles: Vec<Handle<AnimationClip>> = names
-        .iter()
-        .map(|n| gltf.named_animations[n.as_str()].clone())
-        .collect();
+    let handles: Vec<Handle<AnimationClip>> = names.iter().map(|n| by_name[n].clone()).collect();
     let (graph, idx) = AnimationGraph::from_clips(handles.iter().cloned());
     rig.graph = graphs.add(graph);
     for ((n, i), h) in names.iter().zip(idx).zip(handles.iter()) {
@@ -122,6 +139,7 @@ fn finish_loading(
 ) {
     let all = std::iter::once(rigs.arms.gltf.id())
         .chain(std::iter::once(rigs.rex.gltf.id()))
+        .chain(rigs.rex_kt.iter().map(|h| h.id()))
         .chain(rigs.weapon_gltfs.iter().map(|h| h.id()))
         .chain(rigs.level.iter().map(|h| h.id()))
         .chain(rigs.kong_gltf.iter().map(|h| h.id()))
@@ -140,7 +158,10 @@ fn finish_loading(
     let arms = gltfs.get(&rigs.arms.gltf).expect("arms gltf");
     build_rig(&mut rigs.arms, arms, &clips, &mut graphs);
     let rex = gltfs.get(&rigs.rex.gltf).expect("rex gltf");
-    build_rig(&mut rigs.rex, rex, &clips, &mut graphs);
+    match rigs.rex_kt.as_ref().and_then(|h| gltfs.get(h)) {
+        Some(kt) => build_rig_multi(&mut rigs.rex, &[rex, kt], &clips, &mut graphs),
+        None => build_rig(&mut rigs.rex, rex, &clips, &mut graphs),
+    }
     rigs.arms_scene = arms.scenes[0].clone();
     rigs.rex_scene = rex.scenes[0].clone();
     rigs.weapon_scenes = rigs

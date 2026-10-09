@@ -44,6 +44,9 @@ pub struct KongCam {
     pub blocked: u32,
     /// close-up in progress for the batch shots
     pub clip_t: f32,
+    /// hit kick: `k_exec_hit_landed` sends the camera an impulse of 2.5 along camera -> target on light /
+    /// heavy blows (`fn@0x00693a50`) [C call; L/G how the camera turns it into motion]
+    pub kick: Vec3,
 }
 
 impl Default for KongCam {
@@ -63,6 +66,7 @@ impl Default for KongCam {
             min_dist: f32::MAX,
             blocked: 0,
             clip_t: 0.0,
+            kick: Vec3::ZERO,
         }
     }
 }
@@ -271,6 +275,17 @@ pub fn kong_camera(
 
     // hand-held sway in the cinema style
     let mut eye = c.cam.pos;
+    for e in c.frame_events.iter() {
+        if let kk_mechanics::kong::fight::FightEvent::Hit { attacker: kk_mechanics::kong::fight::Actor::Kong, class, .. } = e {
+            if class & 3 != 0 {
+                let to = (c.rex_world() + Vec3::Y * 3.0 - c.cam.pos).normalize_or_zero();
+                // 2.5 game units -> a short 0.25 m push toward the blow [G scale]
+                c.cam.kick = to * 2.5 * 0.1;
+            }
+        }
+    }
+    eye += c.cam.kick;
+    c.cam.kick *= (-dt * 12.0).exp();
     if cinema {
         let t = c.t;
         eye += Vec3::new((t * 0.9).sin() * 0.06, (t * 1.3).sin() * 0.05, (t * 0.7).cos() * 0.06);

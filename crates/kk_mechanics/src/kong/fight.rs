@@ -41,7 +41,10 @@ pub const REX_RADIUS: f32 = 4.0;
 pub const KONG_RADIUS: f32 = 1.0;
 /// Kong full-speed run [G] (locomotion is animation driven, K01).
 pub const KONG_RUN_SPEED: f32 = 8.0;
-/// Rex walk speed / charge speed [G].
+/// Rex walk speed / charge speed [G]. The KT clips' own root speeds (clip root track x kit speed byte
+/// b2/64) are walk 0x01 4.72 m/s and charge 0x05 18.6 m/s [C data]; whether KT locomotion follows the
+/// root track or a Dyn speed set by `KT_ETAT_charge` is not settled, and the demo brain is tuned on
+/// these values, so the presentation scales the clips to the simulated speed instead.
 pub const REX_WALK_SPEED: f32 = 4.0;
 pub const REX_CHARGE_SPEED: f32 = 14.0;
 /// Maximum charge length before the rex stops by itself [G].
@@ -77,8 +80,9 @@ pub const SLAM_RELEASE_FRAME: f32 = 78.0;
 pub const THROW_DISTANCE: f32 = 20.0;
 pub const THROW_SPEED: f32 = 25.0;
 pub const SLAM_DAMAGE: f32 = vrex::IMPACT_DAMAGE;
-/// Jaw-break animation length in frames [G] (`fn@0x00425e60` of rex anim 0x37 not read, KC11 gap).
-pub const FINISH_ANIM_LEN: f32 = 480.0;
+/// Jaw-break lock clip length in frames: `fn@0x00425e60` of rex anim 0x37 = 346 (its TRL in the
+/// J_PNJ_KTREX_2 kit; Kong's 0xe7 has the same 346 frames) [C].
+pub const FINISH_ANIM_LEN: f32 = 346.0;
 
 // ---- animation ids ---------------------------------------------------------------------------
 /// Recovered Kong ids live in `combat` (`ANIM_*`). Ids below are `[G]` placeholders because the
@@ -280,6 +284,12 @@ pub enum FightEvent {
     GrabBrokeFree,
     Throw { dir: V2 },
     ThrowImpact { damage: f32 },
+    /// The rex's hit reaction (`fn@0x0055a020`): KT anim, sound slot (3 light / 4 heavy), `+0xae8` weight.
+    RexPaf { anim: u32, sound: u32, recoil: f32 },
+    /// A blow on the lying rex: ground-hit clip 0x20, it stays down.
+    RexGroundHit,
+    /// Kong's blow reached its hit frame (plane position / facing of Kong): breakables in reach shatter.
+    KongSwing { anim: u32, pos: V2, facing: f32 },
     Slam { damage: f32 },
     FinisherStart,
     FinisherMash { progress: f32, pull: f32, resist: f32 },
@@ -392,6 +402,8 @@ pub struct KongState {
     pub pound: PoundWindow,
     /// the single hit of the current phase has been delivered (`Kong+0xd34[]` list, one victim)
     pub hit_done: bool,
+    /// the current blow's hit window has opened (`KongSwing` sent), whether or not it reached the rex
+    pub swing_done: bool,
     pub shake_done: bool,
     /// time since the phase started (real seconds), drives the forward step
     pub phase_t: f32,
@@ -405,6 +417,8 @@ pub struct KongState {
     pub grab: GrabStage,
     pub finisher: Option<FinisherState>,
     pub victory_t: f32,
+    /// victory pound waits for the jaw-break clip 0xe8 to finish (s into the victory)
+    pub victory_pound_at: f32,
     pub paf_len: f32,
     pub attacks_started: u32,
 }
@@ -415,6 +429,8 @@ pub struct FinisherState {
     pub t: f32,
     /// ticks spent waiting for the rex to enter `Finish`
     pub wait: u32,
+    /// seconds since the jaw broke (message 0x16: Kong 0xe8, rex 0x38), None while mashing
+    pub won_t: Option<f32>,
 }
 
 impl KongState {
@@ -433,6 +449,7 @@ impl KongState {
             latched: Latched::default(),
             pound: PoundWindow::default(),
             hit_done: false,
+            swing_done: false,
             shake_done: false,
             phase_t: 0.0,
             step_speed: 0.0,
@@ -445,6 +462,7 @@ impl KongState {
             grab: GrabStage::Reach(0.0),
             finisher: None,
             victory_t: 0.0,
+            victory_pound_at: 0.0,
             paf_len: 0.0,
             attacks_started: 0,
         }
@@ -508,6 +526,24 @@ pub struct RexBody {
     finish_escaped: bool,
     pub last_move: Option<RexMove>,
     pub was_in_ko: bool,
+    /// attacker -> rex direction of the last blow (`Rex+0x2ac`)
+    pub hit_dir: V2,
+    /// KT clip the rex is playing (last `ANIM_Play`), its clock and play length in seconds
+    pub anim: u32,
+    pub anim_t: f32,
+    pub anim_len: f32,
+    /// KO clip phase: 0 none, 1 fall, 2 lying loop 0x3c, 3 get-up 0x1e
+    pub ko_phase: u8,
+    /// `Rex+0x2cc`: the last reaction (0x33) knocks the rex over sideways (0x21 / 0x22)
+    pub knocked: bool,
+    /// remaining clip shove of the 0x33 reaction (m, along `hit_dir`)
+    shove_left: f32,
+    shove_speed: f32,
+    /// hit knock-back (`Rex+0x5e8` velocity, `+0x2c8` blend toward the animation's own motion,
+    /// `+0x5f4` yaw kick) from `KT_exec_check_paf` / `fn@0x006e4970`, integrated by `KT_TRACK_tagon`
+    pub kb_vel: V2,
+    pub kb_blend: f32,
+    pub kb_spin: f32,
 }
 
 impl RexBody {
@@ -539,6 +575,17 @@ impl RexBody {
             finish_escaped: false,
             last_move: None,
             was_in_ko: false,
+            hit_dir: (1.0, 0.0),
+            anim: 0,
+            anim_t: 0.0,
+            anim_len: 0.0,
+            ko_phase: 0,
+            knocked: false,
+            shove_left: 0.0,
+            shove_speed: 0.0,
+            kb_vel: (0.0, 0.0),
+            kb_blend: 1.0,
+            kb_spin: 0.0,
         }
     }
 
@@ -1049,6 +1096,7 @@ impl Fight {
         self.kong.phase = p;
         self.kong.latched = Latched::default();
         self.kong.hit_done = false;
+        self.kong.swing_done = false;
         self.kong.shake_done = false;
         self.kong.phase_t = 0.0;
         self.kong.attacks_started += 1;
@@ -1160,11 +1208,20 @@ impl Fight {
         // forward step ("lunge"): `Kong+0x1ae8` metres per second for the first 0.3 s, stopping at the rex [C speed, G time]
         let counter = phase == Phase::CounterLunge;
         let (speed, until) = if counter { (12.0, 0.25) } else { (self.kong.step_speed, 0.3) };
-        if speed > 0.0 && self.kong.phase_t < until && self.surface_dist() > 2.0 {
+        // the rex slides 8/3 m under each blow (knock-back, KT_TRACK_tagon): the step keeps closing in
+        // up to the blow's first hit frame so chained blows stay in reach [G]
+        let closing = info.hit.map_or(false, |(a, _)| frame < a && !self.kong.hit_done);
+        if speed > 0.0 && (self.kong.phase_t < until || closing) && self.surface_dist() > 2.0 {
             self.kong.pos = add_scaled(self.kong.pos, self.kong.forward(), speed * sp * TICK);
         }
         // the blow
         if let Some((a, b)) = info.hit {
+            if !self.kong.swing_done && frame >= a {
+                // the hit window opened: anything breakable in front of Kong is struck (the level decides)
+                self.kong.swing_done = true;
+                let (anim, pos, facing) = (self.kong.anim, self.kong.pos, self.kong.facing);
+                self.emit(FightEvent::KongSwing { anim, pos, facing });
+            }
             if !self.kong.hit_done && frame >= a && frame <= b && self.rex_in_reach(counter) {
                 self.kong.hit_done = true;
                 self.kong_blow();
@@ -1223,6 +1280,18 @@ impl Fight {
             }
         }
         if flinch && !matches!(st, KtState::Grabbed) {
+            self.rex.hit_dir = norm(sub(self.rex.pos, self.kong.pos));
+            // knock-back impulse: 8.0 m/s along the blow, none for the no-damage class 0x10 [C]
+            let h = self.rex.hit_dir;
+            let impulse = if class & combat::HIT_NO_DAMAGE != 0 { 0.0 } else { vrex::KNOCKBACK_SPEED };
+            self.rex.kb_vel = (h.0 * impulse, h.1 * impulse);
+            self.rex.kb_blend = 0.0;
+            // yaw kick: blows that land off the hips (Kong strikes the head/neck, in front of the
+            // pivot) turn the rex away from the blow's side; |kick| <= 1 rad [C formula, L hit point]
+            let fwd = self.rex.forward();
+            let left = (-fwd.1, fwd.0);
+            let lever = if dot(sub(self.kong.pos, self.rex.pos), fwd) >= 0.0 { 1.0 } else { -1.0 };
+            self.rex.kb_spin = -dot(left, h) * lever;
             self.rex.counters.register(class);
             self.rex.hit_pending = true;
             self.rex.hit_flags = class;
@@ -1327,7 +1396,7 @@ impl Fight {
                     self.rex.state_len = 4.0;
                     self.emit(FightEvent::RexState { from: KtState::Grabbed, to: KtState::Projectile });
                     self.emit(FightEvent::Throw { dir: d });
-                    self.emit(FightEvent::Anim { actor: Actor::Rex, id: REX_ANIM_THROWN, speed: 1.0 });
+                    self.rex_play(REX_ANIM_THROWN, 1.0);
                 }
                 if frame >= anim_info(ANIM_THROW).len {
                     self.back_to_main();
@@ -1365,7 +1434,7 @@ impl Fight {
         self.kong.mode = KongMode::Finisher;
         self.kong.phase = Phase::None;
         self.kong.latched = Latched::default();
-        self.kong.finisher = Some(FinisherState { mash: FinishMash::new(), t: 0.0, wait: 0 });
+        self.kong.finisher = Some(FinisherState { mash: FinishMash::new(), t: 0.0, wait: 0, won_t: None });
         let to = self.to_rex();
         self.kong.facing = angle_of(to);
         self.rex.grab_msg = Some(GrabMsg::Finish);
@@ -1375,6 +1444,20 @@ impl Fight {
     }
 
     fn kong_finisher(&mut self, pressed: [bool; 4]) {
+        // message 0x16 received: Kong plays 0xe8 on the rex; at frame 100 (or its end) he sends 0x17,
+        // the rex goes to `mort` (k_ETAT_finish) [C]
+        if let Some(f) = self.kong.finisher.as_mut() {
+            if let Some(w) = f.won_t {
+                let w = w + TICK;
+                f.won_t = Some(w);
+                self.kong.anim_t += TICK;
+                self.snap_onto_rex(1.0);
+                if (w - TICK) * FPS <= FINISH_KILL_FRAME && w * FPS > FINISH_KILL_FRAME {
+                    self.rex.finish_done = true;
+                }
+                return;
+            }
+        }
         if self.rex.state() != KtState::Finish {
             // waiting for the rex to enter `Finish` (one tick); give up if it never does
             let give_up = match self.kong.finisher.as_mut() {
@@ -1395,9 +1478,10 @@ impl Fight {
             None => return,
         };
         f.t += TICK;
-        // keep Kong next to the rex's head [G]
-        let to = self.to_rex();
-        self.kong.facing = angle_of(to);
+        // message 0x14: Kong's root slides onto the rex's root and turns to the rex's axis at 6*dt; from
+        // the mash clip on (0x15) he stays snapped there (the paired clips are authored on one root) [C]
+        let lock_done = f.t >= anim_info(ANIM_FINISH_LOCK).len / FPS;
+        self.snap_onto_rex(if lock_done { 1.0 } else { (6.0 * TICK).min(1.0) });
         let pressing = pressed[SLOT_ATTACK] || pressed[SLOT_SPECIAL] || pressed[SLOT_CANCEL];
         // Kong's pull value (`Kong_MashPullValue@0x602e40`) [C]: 0 during the lock clip 0xe6 (20 frames), then the ramp of the 346 frame
         // mash clip 0xe7, which `ANIM_Play` restarts whenever it has ended
@@ -1418,10 +1502,12 @@ impl Fight {
                 self.kong.finisher = Some(f);
             }
             FinishOutcome::Won => {
-                self.rex.finish_done = true;
+                // the cursor passed the clip end: the rex sends 0x16, plays 0x38; Kong plays 0xe8 [C]
                 self.emit(FightEvent::FinisherSuccess);
                 self.play(ANIM_FINISH_WIN);
-                self.kong.finisher = None;
+                self.rex_play(REX_ANIM_FINISH_WON, 1.0);
+                f.won_t = Some(0.0);
+                self.kong.finisher = Some(f);
                 // Kong waits in the finisher mode until the rex's `mort` triggers the victory
             }
             FinishOutcome::Escaped => {
@@ -1430,8 +1516,11 @@ impl Fight {
                 self.emit(FightEvent::Anim { actor: Actor::Rex, id: REX_ANIM_FINISH_ESCAPE, speed: 1.0 });
                 self.play(ANIM_FINISH_ESCAPE);
                 self.kong.finisher = None;
-                // shaken off: Kong is thrown back [G]
-                let away = norm(sub(self.kong.pos, self.rex.pos));
+                // shaken off: Kong is thrown back [G]. His root sat on the rex's root; put him back where
+                // his body was (in front of the rex) before pushing him away.
+                let away = self.rex.forward();
+                self.kong.pos = add_scaled(self.rex.pos, away, REX_RADIUS + KONG_RADIUS);
+                self.kong.facing = angle_of((-away.0, -away.1));
                 self.kong.vel = (away.0 * 20.0, away.1 * 20.0);
                 self.back_to_main();
             }
@@ -1445,23 +1534,53 @@ impl Fight {
         if self.kong.mode == KongMode::Victory || self.kong.mode == KongMode::Dead {
             return;
         }
+        // after the jaw-break, the pound waits for the end of 0xe8 [C: 0xe8 plays to its end]
+        let wait = match self.kong.finisher.as_ref().and_then(|f| f.won_t) {
+            Some(w) => (anim_info(ANIM_FINISH_WIN).len / FPS - w).max(0.0),
+            None => 0.0,
+        };
         self.kong.mode = KongMode::Victory;
         self.kong.finisher = None;
         self.kong.victory_t = 0.0;
+        self.kong.victory_pound_at = wait;
         self.kong.phase = Phase::None;
         self.over = Some(Actor::Kong);
         self.emit(FightEvent::KongMode { mode: KongMode::Victory });
+        if wait <= 0.0 {
+            self.victory_pound();
+        }
+    }
+
+    fn victory_pound(&mut self) {
         self.emit(FightEvent::VictoryPound);
         self.play(combat::ANIM_POUND);
         self.shake(0.075, 1.1);
+    }
+
+    /// Kong's root onto the rex's root and his axis onto the rex's axis (`k`: blend factor this tick).
+    fn snap_onto_rex(&mut self, k: f32) {
+        let r = self.rex.pos;
+        let p = self.kong.pos;
+        self.kong.pos = (p.0 + (r.0 - p.0) * k, p.1 + (r.1 - p.1) * k);
+        let mut d = (self.rex.facing - self.kong.facing) % std::f32::consts::TAU;
+        if d > std::f32::consts::PI {
+            d -= std::f32::consts::TAU;
+        } else if d < -std::f32::consts::PI {
+            d += std::f32::consts::TAU;
+        }
+        self.kong.facing += d * k;
     }
 
     fn kong_victory(&mut self) {
         let before = self.kong.victory_t;
         self.kong.victory_t += TICK;
         self.kong.anim_t += TICK;
-        let roar_at = 2.5;
-        let end_at = 5.0;
+        let p0 = self.kong.victory_pound_at;
+        if p0 > 0.0 && before < p0 && self.kong.victory_t >= p0 {
+            self.victory_pound();
+        }
+        let roar_at = p0 + 2.5;
+        let end_at = p0 + 5.0;
         if before < roar_at && self.kong.victory_t >= roar_at {
             self.emit(FightEvent::VictoryRoar);
             self.play(combat::ANIM_ROAR);
@@ -1474,7 +1593,7 @@ impl Fight {
     pub fn is_finished(&self) -> bool {
         match self.over {
             Some(Actor::Rex) => true,
-            Some(Actor::Kong) => self.kong.mode == KongMode::Victory && self.kong.victory_t >= 5.0,
+            Some(Actor::Kong) => self.kong.mode == KongMode::Victory && self.kong.victory_t >= self.kong.victory_pound_at + 5.0,
             None => false,
         }
     }
@@ -1507,7 +1626,13 @@ impl Fight {
             counter_due = self.rex.counters.take_counter();
         }
         let timer = self.rex.machine.timer;
-        let anim_done = timer >= self.rex.state_len && self.rex.state_len > 0.0;
+        let in_ko = self.rex.state() == KtState::KoAuSol;
+        let ko_getting_up = in_ko && self.rex.ko_phase == 3;
+        let anim_done = if in_ko {
+            ko_getting_up && self.rex.anim_t >= self.rex.anim_len
+        } else {
+            timer >= self.rex.state_len && self.rex.state_len > 0.0
+        };
         let in_pound = self.kong.mode == KongMode::Main && self.kong.phase == Phase::ChestPound;
         let inp = KtInput {
             dt,
@@ -1532,6 +1657,7 @@ impl Fight {
             grab_anim: self.rex.grab_anim,
             finish_done: self.rex.finish_done,
             finish_escaped: self.rex.finish_escaped,
+            ko_getting_up,
             ..KtInput::default()
         };
         self.rex.hit_pending = false;
@@ -1546,9 +1672,100 @@ impl Fight {
         if ns != r_state_before {
             self.on_rex_enter(r_state_before, ns);
         }
+        if ns == KtState::Paf && (inp.hit || ns != r_state_before) {
+            self.rex_paf_reaction();
+        } else if ns == KtState::KoAuSol && r_state_before == KtState::KoAuSol && inp.hit {
+            // ground hit 0x20, then back to the lying loop (the hold clock stops meanwhile) [C]
+            self.rex_play(0x20, 1.0);
+            self.rex.ko_phase = 1;
+            self.emit(FightEvent::RexGroundHit);
+        }
+        self.rex_anim_tick(ns);
         self.rex_behave(ns, to_kong);
         if self.rex.state() == KtState::Mort {
             self.begin_victory();
+        }
+    }
+
+    /// `ANIM_Play` on the rex: remembers the clip and its play length, tells the presentation.
+    fn rex_play(&mut self, id: u32, speed: f32) {
+        self.rex.anim = id;
+        self.rex.anim_t = 0.0;
+        self.rex.anim_len = vrex::kt_anim_frames(id) / FPS / speed.max(0.05);
+        self.emit(FightEvent::Anim { actor: Actor::Rex, id, speed });
+    }
+
+    /// `fn@0x0055a020` for the current blow (or the default blow when `paf` is entered without one).
+    fn rex_paf_reaction(&mut self) {
+        let fwd = self.rex.forward();
+        let back = (-fwd.0, -fwd.1);
+        let left = (-fwd.1, fwd.0);
+        let h = self.rex.hit_dir;
+        let flags = if self.rex.hit_flags == 0 { combat::HIT_HEAVY } else { self.rex.hit_flags };
+        let alive = self.rex.life() > 0.0;
+        let Some(r) = vrex::paf_reaction(flags, alive, dot(back, h), dot(left, h), true) else { return };
+        let r01 = self.rng.range(0.0, 1.0);
+        let speed = vrex::paf_speed(r01);
+        if r.face_attacker {
+            // 0x33 turns the rex to face the attacker; its first clip carries a 5.0 m shove [C root track]
+            self.rex.facing = angle_of((-h.0, -h.1));
+            self.rex.shove_left = 5.0;
+            self.rex.shove_speed = 5.0 / (47.0 / FPS / speed);
+        }
+        self.rex_play(r.anim, speed);
+        self.rex.state_len = self.rex.anim_len;
+        self.rex.machine.timer = 0.0;
+        self.rex.hit_flags = 0;
+        self.emit(FightEvent::RexPaf { anim: r.anim, sound: r.sound, recoil: r.recoil });
+    }
+
+    /// Rex clip clock: KO clip sequencing (fall -> lying loop 0x3c while the hold runs -> get-up 0x1e)
+    /// and the 0x33 shove.
+    fn rex_anim_tick(&mut self, st: KtState) {
+        let dt = TICK;
+        self.rex.anim_t += dt;
+        // knock-back (KT_TRACK_tagon): v = lerp(impulse, 0, blend), yaw += (1-blend)*kick*3*dt,
+        // blend -> 1 at rate 3/s; total slide 8/3 m [C]
+        if self.rex.kb_blend < 0.9 && !matches!(st, KtState::Grabbed | KtState::Finish | KtState::Projectile | KtState::Mort) {
+            let k = 1.0 - self.rex.kb_blend;
+            let v = self.rex.kb_vel;
+            self.rex.pos = clamp_arena(add_scaled(self.rex.pos, v, k * dt), REX_RADIUS);
+            self.rex.facing += k * self.rex.kb_spin * 3.0 * dt;
+            let a = (3.0 * dt).clamp(0.0, 1.0);
+            self.rex.kb_blend = (1.0 - a) * self.rex.kb_blend + a;
+        } else if self.rex.kb_blend < 1.0 {
+            self.rex.kb_blend = 1.0;
+        }
+        if self.rex.shove_left > 0.0 {
+            let step = (self.rex.shove_speed * dt).min(self.rex.shove_left);
+            self.rex.shove_left -= step;
+            let h = self.rex.hit_dir;
+            self.rex.pos = clamp_arena(add_scaled(self.rex.pos, h, step), REX_RADIUS);
+        }
+        if st != KtState::KoAuSol {
+            self.rex.ko_phase = 0;
+            return;
+        }
+        match self.rex.ko_phase {
+            1 => {
+                // the hold clock (`Rex+0x2d8`) only runs during the lying loop [C]
+                self.rex.machine.ko_left += dt;
+                if self.rex.anim_t >= self.rex.anim_len {
+                    self.rex_play(vrex::KO_LIE_ANIM, 1.0);
+                    self.rex.ko_phase = 2;
+                }
+            }
+            2 => {
+                if self.rex.machine.ko_left <= 0.0 {
+                    self.rex_play(vrex::KO_GETUP_ANIM, 1.0);
+                    self.rex.ko_phase = 3;
+                }
+            }
+            3 => {
+                // when the get-up ends the rex leaves KO whatever the hold says (case 0x1e) [C]
+                self.rex.machine.ko_left = self.rex.machine.ko_left.min(0.0);
+            }
+            _ => {}
         }
     }
 
@@ -1583,7 +1800,7 @@ impl Fight {
                     _ => REX_ANIM_BITE,
                 };
                 self.emit(FightEvent::RexAttack { kind });
-                self.emit(FightEvent::Anim { actor: Actor::Rex, id: anim, speed: 1.0 });
+                self.rex_play(anim, 1.0);
             }
             KtState::Charge => {
                 self.rex.charge_dir = norm(sub(self.kong.pos, self.rex.pos));
@@ -1603,7 +1820,10 @@ impl Fight {
                 len_s = 1.6;
             }
             KtState::Cri => {
-                len_s = 2.0;
+                // roar clip (`fn@0x00556040`): 0x24 at Kong, 0x6e when wounded [C ids, L branch choice]
+                let id = if self.rex.wounded() { 0x6e } else { 0x24 };
+                self.rex_play(id, 1.0);
+                len_s = self.rex.anim_len;
                 self.emit(FightEvent::RexRoar);
             }
             KtState::Paf => {
@@ -1614,6 +1834,15 @@ impl Fight {
                 let hold = self.rex.machine.ko_left;
                 len_s = hold + 0.8;
                 self.rex.attack = None;
+                let left = (-self.rex.forward().1, self.rex.forward().0);
+                let fall = vrex::ko_fall_anim(from, self.rex.anim, self.rex.knocked, dot(left, self.rex.hit_dir));
+                self.rex.knocked = false;
+                self.rex_play(fall, 1.0);
+                self.rex.ko_phase = match fall {
+                    vrex::KO_LIE_ANIM => 2,
+                    vrex::KO_GETUP_ANIM => 3,
+                    _ => 1,
+                };
                 self.emit(FightEvent::KoStart { hold });
             }
             KtState::Grabbed => {
@@ -1623,10 +1852,13 @@ impl Fight {
                 len_s = 4.0;
             }
             KtState::Finish => {
-                self.emit(FightEvent::Anim { actor: Actor::Rex, id: REX_ANIM_FINISH, speed: 1.0 });
+                self.rex_play(REX_ANIM_FINISH, 1.0);
             }
             KtState::Mort => {
-                self.emit(FightEvent::Anim { actor: Actor::Rex, id: REX_ANIM_FINISH_WON, speed: 1.0 });
+                // after the jaw-break the rex is already in 0x38; any other death plays 0x15 -> 0x1c [C]
+                if from != KtState::Finish {
+                    self.rex_play(vrex::MORT_ANIMS[0], 1.0);
+                }
                 self.emit(FightEvent::RexDied);
             }
             KtState::FightKong => {
@@ -1909,10 +2141,67 @@ mod tests {
         let ev = run(&mut f, 0.1, &KongInput::default());
         let hold = ev.iter().find_map(|e| match e { FightEvent::KoStart { hold } => Some(*hold), _ => None }).unwrap();
         assert!((hold - 4.75).abs() < 1e-4);
+        // fall 0x16 (129 f) + lying 0x3c for the hold + get-up 0x1e (93 f): still down after 6 s
         let ev = run(&mut f, 6.0, &KongInput::default());
+        assert!(!ev.iter().any(|e| matches!(e, FightEvent::KoEnd)));
+        assert!(ev.iter().any(|e| matches!(e, FightEvent::Anim { actor: Actor::Rex, id: 0x3c, .. })));
+        let ev = run(&mut f, 3.0, &KongInput::default());
         assert!(ev.iter().any(|e| matches!(e, FightEvent::KoEnd)));
         assert_eq!(f.rex.life(), 20.0);
         assert_eq!(f.rex.state(), KtState::FightKong);
+    }
+
+    #[test]
+    fn blow_plays_the_paf_reaction_and_a_new_blow_restarts_it() {
+        let mut f = Fight::new(3);
+        near(&mut f);
+        calm(&mut f);
+        // rex faces Kong: the blow travels against the rex's forward -> "front" clip
+        f.rex.facing = angle_of(sub(f.kong.pos, f.rex.pos));
+        f.deliver_to_rex(combat::HIT_HEAVY, 5, 0x10, true);
+        let ev = run(&mut f, TICK * 2.0, &KongInput::default());
+        assert_eq!(f.rex.state(), KtState::Paf);
+        assert!(ev.iter().any(|e| matches!(e, FightEvent::RexPaf { anim: 0x67, sound: 4, .. })), "{ev:?}");
+        run(&mut f, 0.2, &KongInput::default());
+        let t_before = f.rex.machine.timer;
+        f.deliver_to_rex(combat::HIT_LIGHT, 5, 0x10, true);
+        let ev = run(&mut f, TICK * 2.0, &KongInput::default());
+        assert!(ev.iter().any(|e| matches!(e, FightEvent::RexPaf { anim: 0x6b, sound: 3, .. })), "{ev:?}");
+        assert!(f.rex.machine.timer < t_before);
+    }
+
+    #[test]
+    fn jaw_break_snaps_kong_onto_the_rex_and_kills_at_frame_100() {
+        let mut f = Fight::new(9);
+        knocked_out(&mut f);
+        f.rex.facing = 0.7;
+        f.start_finisher();
+        let mut i = KongInput::default();
+        i.buttons[SLOT_ATTACK].pressed = true;
+        i.buttons[SLOT_ATTACK].held = true;
+        let mut won = false;
+        let mut died_at = None;
+        for n in 0..(20.0 / TICK) as usize {
+            let mut j = i;
+            j.buttons[SLOT_ATTACK].pressed = n % 2 == 0;
+            let ev = f.step(TICK, &j);
+            if f.rex.state() == KtState::Finish && n > 40 {
+                assert!(len(sub(f.kong.pos, f.rex.pos)) < 1e-3);
+                assert!((f.kong.facing - f.rex.facing).abs() < 1e-3);
+            }
+            if ev.iter().any(|e| matches!(e, FightEvent::FinisherSuccess)) {
+                won = true;
+                assert!(ev.iter().any(|e| matches!(e, FightEvent::Anim { actor: Actor::Rex, id: 0x38, .. })));
+            }
+            if died_at.is_none() && ev.iter().any(|e| matches!(e, FightEvent::RexDied)) {
+                died_at = Some(n);
+            }
+            if ev.iter().any(|e| matches!(e, FightEvent::VictoryPound)) {
+                assert!(died_at.is_some());
+                break;
+            }
+        }
+        assert!(won && died_at.is_some());
     }
 
     #[test]

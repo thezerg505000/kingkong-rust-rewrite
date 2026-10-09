@@ -24,6 +24,9 @@ mod kong;
 mod kong_cam;
 mod kong_fx;
 mod kong_fur;
+mod meshcol;
+mod breakable;
+mod spears;
 mod player;
 mod rex;
 mod scene;
@@ -133,6 +136,8 @@ fn main() {
         .add_plugins(kong::KongPlugin)
         .add_plugins(swamp::SwampPlugin)
         .add_plugins(kong_fur::KongFurPlugin)
+        .add_plugins(breakable::BreakablePlugin)
+        .add_plugins(spears::SpearPlugin)
         .add_plugins((creatures::CreaturePlugin, testarea::TestAreaPlugin, tbatch::TBatchPlugin))
         .run();
 }
